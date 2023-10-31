@@ -1,0 +1,17 @@
+name: climate-gpt
+channels:
+  - pytorch
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pytorch
+  - jupyterlab
+  - ipykernel
+  - structlog
+  - tqdm
+  - black[jupyter]
+  - flake8
+  - pre-commit
+  - pytest
+  - pip
+  - pip:
