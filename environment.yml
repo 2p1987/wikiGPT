@@ -4,7 +4,9 @@ channels:
   - conda-forge
 dependencies:
   - python=3.11
+  - numpy
   - pytorch
+  - sentencepiece
   - jupyterlab
   - ipykernel
   - structlog
@@ -15,3 +17,4 @@ dependencies:
   - pytest
   - pip
   - pip:
+    - -e .
