@@ -13,6 +13,7 @@ dependencies:
   - tqdm
   - black[jupyter]
   - flake8
+  - mypy
   - pre-commit
   - pytest
   - pip
