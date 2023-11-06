@@ -34,7 +34,7 @@ def clear_folder(path):
             item.unlink()  # Delete files
 
 
-def create_shuffled_shards(n_shards: int, seed: int) -> None:
+def create_shuffled_shards(n_shards: int, seed: int, data_cache_dir: str) -> None:
     """
     Each original shard is obtained as a thematic search from wikipedia
     (see https://github.com/2p1987/wikicollect for more info).
@@ -44,7 +44,7 @@ def create_shuffled_shards(n_shards: int, seed: int) -> None:
     them as randomly generated shards.
     These shuffled shards will be our input to pretokenize the dataset.
     """
-    shards_folder_path = Path(DATA_CACHE_DIR, "original_shards")
+    shards_folder_path = Path(data_cache_dir, "original_shards")
     shard_filenames = sorted(shards_folder_path.glob("*.json"))
     # load all the data in a long list
     full_data = []
@@ -98,7 +98,7 @@ deleted."
     )
 
 
-def process_shard(args, tokenizer_path: Path):
+def process_shard(args, tokenizer_path: Path, data_cache_dir: Path):
     shard_id, shard = args
     enc = Tokenizer(tokenizer_path)
     all_tokens = []
@@ -112,7 +112,7 @@ def process_shard(args, tokenizer_path: Path):
     # convert to uint16 nparray
     all_tokens_np = np.array(all_tokens, dtype=np.uint16)
     # save .bin files into a new tok{N} directory
-    bin_dir = Path(DATA_CACHE_DIR, f"tok{enc.vocab_size}")
+    bin_dir = Path(data_cache_dir, f"tok{enc.vocab_size}")
     bin_dir.mkdir(exist_ok=True)
     bin_basename = shard.name.replace(".json", ".bin")
     tokenized_filename = Path(bin_dir, bin_basename)
@@ -126,9 +126,15 @@ def process_shard(args, tokenizer_path: Path):
     )
 
 
-def pretokenize(tokenizer_path: Path):
+def pretokenize(tokenizer_path: str, data_cache_dir: str):
     # iterate the shards and tokenize all of them one by one
-    shuffled_shard_folder = Path(DATA_CACHE_DIR, "shuffled_shards")
+    shuffled_shard_folder = Path(data_cache_dir, "shuffled_shards")
+    data_cache_dir_ = Path(data_cache_dir)
+    tokenizer_path_ = Path(tokenizer_path)
+    if tokenizer_path_.exists() is False:
+        raise ValueError(
+            f"Tokenizer model path {tokenizer_path_.as_posix()} does not exist."
+        )
     if shuffled_shard_folder.exists() is False:
         raise RuntimeError(
             "Shuffled shards do not exist. Please run 'create_shuffled_shards'"
@@ -136,7 +142,9 @@ def pretokenize(tokenizer_path: Path):
     shard_filenames = sorted(shuffled_shard_folder.glob("*.json"))
     log.info(f"Number of shards to be processed: {len(shard_filenames)}")
     # process all the shards in a process pool
-    fun = partial(process_shard, tokenizer_path=tokenizer_path)
+    fun = partial(
+        process_shard, tokenizer_path=tokenizer_path_, data_cache_dir=data_cache_dir_
+    )
     with ProcessPoolExecutor() as executor:
         executor.map(fun, enumerate(shard_filenames))
     log.info("Finished processing all shards.")
@@ -157,8 +165,18 @@ if __name__ == "__main__":
         "shuffle",
         help="Creates the shuffled shards from data in the data/original_shards folder",
     )
-    parser_create_shuffled_shards.add_argument("--n-shards", type=int, default=100)
-    parser_create_shuffled_shards.add_argument("--seed", type=int, default=678)
+    parser_create_shuffled_shards.add_argument(
+        "--n-shards", type=int, default=100, help="Number of shards to be created."
+    )
+    parser_create_shuffled_shards.add_argument(
+        "--seed", type=int, default=678, help="Random seed for shuffling"
+    )
+    parser_create_shuffled_shards.add_argument(
+        "--data-cache-dir",
+        type=str,
+        default=DATA_CACHE_DIR,
+        help="Data cache directory.",
+    )
 
     parser_pretokenize = subparsers.add_parser(
         "pretokenize",
@@ -170,21 +188,26 @@ if __name__ == "__main__":
         type=str,
         help="path to the tokenizer model",
     )
+    parser_pretokenize.add_argument(
+        "--data-cache-dir",
+        type=str,
+        default=DATA_CACHE_DIR,
+        help="Data cache directory.",
+    )
 
     args = parser.parse_args()
 
     if args.task == "shuffle":
         log.info("Shuffling original shards.")
-        create_shuffled_shards(n_shards=args.n_shards, seed=args.seed)
+        create_shuffled_shards(
+            n_shards=args.n_shards, seed=args.seed, data_cache_dir=args.data_cache_dir
+        )
 
     elif args.task == "pretokenize":
         log.info("Pretokenizing shuffled shards")
-        tokenizer_model_path = Path(args.tokenizer_path)
-        if tokenizer_model_path.exists() is False:
-            raise ValueError(
-                f"Tokenizer model path {tokenizer_model_path} does not exist."
-            )
-        pretokenize(tokenizer_model_path)
+        pretokenize(
+            tokenizer_path=args.tokenizer_path, data_cache_dir=args.data_cache_dir
+        )
 
     else:
         raise ValueError(f"Expected task 'shuffle' or 'pretokenize'. Got {args.task}")
