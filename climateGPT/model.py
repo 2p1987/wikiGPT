@@ -2,9 +2,10 @@
 # The version is slightly simplified: we get rid of the kv cache and mutli-group query
 # attention since we aim at training small language models.
 
+import inspect
 import math
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
 import structlog
 import torch
@@ -18,6 +19,35 @@ log = structlog.get_logger()
 
 @dataclass
 class ModelArgs:
+    """
+    A class used to store arguments for a model.
+
+    ...
+
+    Attributes
+    ----------
+    dim : int
+        dimension of the model embeddings
+    n_layers : int
+        number of layers in the model (transformer blocks + FF)
+    n_heads : int
+        number of attention heads
+    vocab_size : int
+        size of the vocabulary
+    hidden_dim : int
+        dimension of the hidden layer
+    hidden_dim_multiplier : int
+        multiplier for the hidden layer dimension
+    multiple_of : int
+        MLP hidden layer size will be multiple of this value
+    norm_eps : float
+        a small number added for stability in normalization
+    max_context_length : int
+        maximum context length for the model
+    dropout : float
+        dropout rate for the model
+    """
+
     dim: int = 4096
     n_layers: int = 1
     n_heads: int = 32
@@ -66,6 +96,32 @@ def precompute_freqs_cis(
 
 
 def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
+    """
+    Reshapes the frequency tensor for broadcasting.
+
+    This function reshapes the frequency tensor to match the shape of the input tensor x
+    but with dimensions set to 1 except for the second and last dimensions. This is done
+    to enable broadcasting when performing operations between freqs_cis and x.
+
+    Parameters
+    ----------
+    freqs_cis : torch.Tensor
+        The frequency tensor to be reshaped.
+    x : torch.Tensor
+        The input tensor whose shape is used as a reference for reshaping
+        (expected batch_size, context_length, n_head, head_dim).
+
+    Returns
+    -------
+    torch.Tensor
+        The reshaped frequency tensor.
+
+    Raises
+    ------
+    AssertionError
+        If the number of dimensions of x is less than or equal to 1, or if the shape of
+        freqs_cis does not match the second and last dimensions of x.
+    """
     ndim = x.ndim
     assert ndim > 1
     assert freqs_cis.shape == (x.shape[1], x.shape[-1])
@@ -76,6 +132,33 @@ def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
 def apply_rotary_emb(
     xq: torch.Tensor, xk: torch.Tensor, freqs_cos: torch.Tensor, freqs_sin: torch.Tensor
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Applies rotary positional encoding to the input tensors embeddings.
+
+    This function applies rotary positional encoding to the input tensors xq and xk
+    using the provided cosine and sine frequencies. The input tensors are first reshaped
+    to match the complex representation (first position is real part, second is
+    imaginary part for each sequential pair in the embedding vector), then the
+    frequencies are reshaped for broadcasting. The rotation is applied and the last two
+    dimensions are flattened back in their original order.
+
+    Parameters
+    ----------
+    xq : torch.Tensor
+        The input tensor for query.
+    xk : torch.Tensor
+        The input tensor for key.
+    freqs_cos : torch.Tensor
+        The cosine frequencies for rotation.
+    freqs_sin : torch.Tensor
+        The sine frequencies for rotation.
+
+    Returns
+    -------
+    Tuple[torch.Tensor, torch.Tensor]
+        The output tensors after applying rotary positional encoding.
+
+    """
     # reshape xq and xk to match the complex representation
     xq_r, xq_i = xq.float().reshape(xq.shape[:-1] + (-1, 2)).unbind(-1)
     xk_r, xk_i = xk.float().reshape(xk.shape[:-1] + (-1, 2)).unbind(-1)
@@ -168,7 +251,52 @@ class RMSNorm(nn.Module):
 
 # Attention module
 class Attention(nn.Module):
+    """
+    A class used to implement the Attention mechanism in a transformer model.
+
+    ...
+
+    Attributes
+    ----------
+    n_heads : int
+        number of attention heads
+    dim : int
+        embedding dimension of the model
+    head_dim : int
+        dimension of each attention head
+    wq : torch.nn.Linear
+        linear layer for query
+    wk : torch.nn.Linear
+        linear layer for key
+    wv : torch.nn.Linear
+        linear layer for value
+    wo : torch.nn.Linear
+        final linear layer for output
+    dropout : float
+        dropout rate for the model
+    attn_dropout : torch.nn.Dropout
+        dropout layer for attention
+    resid_dropout : torch.nn.Dropout
+        dropout layer for residual connection
+    flash : bool
+        flag to use flash attention if available
+
+    Methods
+    -------
+    forward(x: torch.Tensor, freqs_cos: torch.Tensor, freqs_sin: torch.Tensor)
+        -> torch.Tensor:
+        Passes the input through the Attention layer.
+    """
+
     def __init__(self, args: ModelArgs) -> None:
+        """
+        Constructs all the necessary attributes for the Attention object.
+
+        Parameters
+        ----------
+            args : ModelArgs
+                model arguments containing parameters
+        """
         super().__init__()
         self.n_heads = args.n_heads
         self.dim = args.dim
@@ -194,6 +322,23 @@ class Attention(nn.Module):
     def forward(
         self, x: torch.Tensor, freqs_cos: torch.Tensor, freqs_sin: torch.Tensor
     ) -> torch.Tensor:
+        """
+        Passes the input through the Attention layer.
+
+        Parameters
+        ----------
+            x : torch.Tensor
+                input tensor
+            freqs_cos : torch.Tensor
+                pre-computed cosine frequencies for rotary positional encoding
+            freqs_sin : torch.Tensor
+                prer-computed sine frequencies for rotary positional encoding
+
+        Returns
+        -------
+            torch.Tensor
+                output tensor after passing through the Attention layer
+        """
         batch_size, context_length, _ = x.shape
 
         # QKV
@@ -253,21 +398,30 @@ class Attention(nn.Module):
         return output
 
 
-if __name__ == "__main__":
-    model_args = ModelArgs()
-    freqs_cos, freqs_sin = precompute_freqs_cis(
-        model_args.dim // model_args.n_heads, model_args.max_context_length
-    )
-    attention = Attention(ModelArgs())
-    attention(
-        torch.rand(1, model_args.max_context_length, model_args.dim),
-        freqs_cos,
-        freqs_sin,
-    )
-
-
 # FF module
 class FeedForward(nn.Module):
+    """
+    A class used to implement the FeedForward mechanism in a transformer model.
+
+    ...
+
+    Attributes
+    ----------
+    w1 : torch.nn.Linear
+        first linear layer
+    w2 : torch.nn.Linear
+        second linear layer
+    w3 : torch.nn.Linear
+        third linear layer
+    dropout : torch.nn.Dropout
+        dropout layer
+
+    Methods
+    -------
+    forward(x: torch.Tensor) -> torch.Tensor:
+        Passes the input through the FeedForward layer.
+    """
+
     def __init__(
         self,
         dim: int,
@@ -276,6 +430,22 @@ class FeedForward(nn.Module):
         multiple_of: int,
         dropout: float,
     ):
+        """
+        Constructs all the necessary attributes for the FeedForward object.
+
+        Parameters
+        ----------
+            dim : int
+                dimension of the model
+            hidden_dim : int
+                dimension of the hidden layer
+            hidden_dim_multiplier : int
+                multiplier for the hidden layer dimension
+            multiple_of : int
+                MLP hidden layer size will be multiple of this value
+            dropout : float
+                dropout rate for the model
+        """
         super().__init__()
         hidden_dim = int(2 * hidden_dim_multiplier * hidden_dim / 3)
         hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
@@ -284,13 +454,61 @@ class FeedForward(nn.Module):
         self.w3 = nn.Linear(dim, hidden_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Passes the input through the FeedForward layer.
+
+        Parameters
+        ----------
+            x : torch.Tensor
+                input tensor
+
+        Returns
+        -------
+            torch.Tensor
+                output tensor after passing through the FeedForward layer
+        """
         return self.dropout(self.w2(F.silu(self.w1(x)) * self.w3(x)))
 
 
 # Transformer block
 class TransformerBlock(nn.Module):
+    """
+    A class used to implement a Transformer block in a transformer model.
+
+    ...
+
+    Attributes
+    ----------
+    layer_id : int
+        identifier for the layer
+    attn : Attention
+        attention mechanism for the transformer block
+    feedforward : FeedForward
+        feedforward mechanism for the transformer block
+    attn_norm : RMSNorm
+        normalization for the attention mechanism
+    ff_norm : RMSNorm
+        normalization for the feedforward mechanism
+
+    Methods
+    -------
+    forward(x: torch.Tensor, freqs_cos: torch.Tensor, freqs_sin: torch.Tensor)
+    -> torch.Tensor:
+        Passes the input through the Transformer block.
+    """
+
     def __init__(self, layer_id: int, args: ModelArgs) -> None:
+        """
+        Constructs all the necessary attributes for the TransformerBlock object.
+
+        Parameters
+        ----------
+            layer_id : int
+                identifier for the layer
+            args : ModelArgs
+                model arguments containing various parameters
+        """
         super().__init__()
         self.layer_id = layer_id
         self.attn = Attention(args)
@@ -307,6 +525,23 @@ class TransformerBlock(nn.Module):
     def forward(
         self, x: torch.Tensor, freqs_cos: torch.Tensor, freqs_sin: torch.Tensor
     ) -> torch.Tensor:
+        """
+        Passes the input through the Transformer block.
+
+        Parameters
+        ----------
+            x : torch.Tensor
+                input tensor
+            freqs_cos : torch.Tensor
+                cosine frequencies for rotary positional encoding
+            freqs_sin : torch.Tensor
+                sine frequencies for rotary positional encoding
+
+        Returns
+        -------
+            torch.Tensor
+                output tensor after passing through the Transformer block
+        """
         x_attn_norm = self.attn_norm(x)
         h = x + self.attn(x_attn_norm, freqs_cos, freqs_sin)  # residual connection here
         x_ff_norm = self.ff_norm(h)
@@ -316,3 +551,203 @@ class TransformerBlock(nn.Module):
 
 
 # Transformer model
+class Transformer(nn.Module):
+    last_loss: Optional[torch.Tensor] = None
+
+    def __init__(self, args: ModelArgs) -> None:
+        super().__init__()
+        self.args = args
+        self.vocab_size = args.vocab_size
+        self.n_layers = args.n_layers
+
+        # Define model layers
+        self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
+        self.dropout = nn.Dropout(args.dropout)
+        self.layers = nn.ModuleList()
+        for layer_id in range(args.n_layers):
+            self.layers.append(TransformerBlock(layer_id, args))
+        self.norm = RMSNorm(args.dim, args.norm_eps)
+        self.output = nn.Linear(args.dim, args.vocab_size, bias=False)
+
+        # share the embedding parameters with the output parameters
+        self.tok_embeddings.weight = self.output.weight
+        # https://paperswithcode.com/method/weight-tying
+
+        # pre-compute freqs cos and sin for the rotary positional encoding
+        freqs_cos, freqs_sin = precompute_freqs_cis(
+            args.dim // args.n_heads, args.max_context_length
+        )
+        self.register_buffer("freqs_cos", freqs_cos, persistent=False)
+        self.register_buffer("freqs_sin", freqs_sin, persistent=False)
+
+        # init all weights
+        self.apply(self._init_weights)
+        # apply special scaled init to the residual projections, per GPT-2 paper
+        for pn, p in self.named_parameters():
+            if pn.endswith("w3.weight") or pn.endswith("wo.weight"):
+                torch.nn.init.normal_(
+                    p, mean=0.0, std=0.02 / math.sqrt(2 * args.n_layers)
+                )
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
+    def forward(
+        self, tokens: torch.Tensor, targets: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        _, context_length = tokens.shape
+        freqs_cos = self.freqs_cos[:context_length]
+        freqs_sin = self.freqs_sin[:context_length]
+
+        # embed tokens and positions
+        tokens = self.tok_embeddings(tokens)
+        # token: (batch_size, context_length, dim)
+
+        # apply dropout to the token embeddings
+        tokens = self.dropout(tokens)
+
+        # transformer layers
+        for layer in self.layers:
+            tokens = layer(tokens, freqs_cos, freqs_sin)
+
+        # normalize and project to output vocab
+        tokens = self.norm(tokens)
+
+        if targets is not None:
+            logits = self.output(tokens)
+            self.last_loss = F.cross_entropy(
+                logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
+            )
+        else:
+            # inference-time mini-optimization: only forward the output on the very last
+            #  position
+            logits = self.output(
+                tokens[:, [-1], :]
+            )  # note: using list [-1] to preserve the time dim
+            self.last_loss = None
+
+        return logits
+
+    def configure_optimizer(
+        self,
+        learning_rate: float,
+        weight_decay: float,
+        betas: Tuple[float, float],
+        device_type: str,
+    ):
+        # start with all candidate parameters
+        params = {pn: p for pn, p in self.named_parameters() if p.requires_grad}
+        # create optim groups. Any parameters that is 2D will be weight decayed
+        # , otherwise no.
+        # i.e. all weight tensors in matmuls + embeddings are decayed, all biases and
+        # layernorms aren't.
+        decay_params = [p for _, p in params.items() if p.dim() >= 2]
+        nodecay_params = [p for _, p in params.items() if p.dim() < 2]
+        optim_groups = [
+            {"params": decay_params, "weight_decay": weight_decay},
+            {"params": nodecay_params, "weight_decay": 0.0},
+        ]
+        num_decay_params = sum(p.numel() for p in decay_params)
+        num_nodecay_params = sum(p.numel() for p in nodecay_params)
+        log.info(
+            f"""
+            Number of decayed parameter tensors: {len(decay_params)}
+            Containing {num_decay_params:,} parameters
+            """
+        )
+        log.info(
+            f"""
+            Number of non-decayed parameter tensors: {len(nodecay_params)}
+            Containing {num_nodecay_params:,} parameters
+            """
+        )
+        # Create AdamW optimizer and use the fused version if it is available
+        fused_available = "fused" in inspect.signature(torch.optim.AdamW).parameters
+        use_fused = fused_available and device_type == "cuda"
+        extra_args = dict(fused=True) if use_fused else dict()
+        optimizer = torch.optim.AdamW(
+            params=optim_groups, lr=learning_rate, betas=betas, **extra_args
+        )
+
+        log.info(f"using fused AdamW: {use_fused}")
+
+        return optimizer
+
+    def estimate_mfu(self, fwdbwd_per_iter, dt):
+        """
+        estimate model flops utilization (MFU) in units of A100 bfloat16 peak FLOPS
+        """
+        # first estimate the number of flops we do per iteration.
+        # see PaLM paper Appendix B as ref: https://arxiv.org/abs/2204.02311
+        N = sum(p.numel() for p in self.parameters())
+        cfg = self.args
+        L, H, Q, T = (
+            cfg.n_layers,
+            cfg.n_heads,
+            cfg.dim // cfg.n_heads,
+            cfg.max_context_length,
+        )
+        flops_per_token = 6 * N + 12 * L * H * Q * T
+        flops_per_fwdbwd = flops_per_token * T
+        flops_per_iter = flops_per_fwdbwd * fwdbwd_per_iter
+        # express our flops throughput as ratio of A100 bfloat16 peak flops
+        flops_achieved = flops_per_iter * (1.0 / dt)  # per second
+        flops_promised = 312e12  # A100 GPU bfloat16 peak flops is 312 TFLOPS
+        mfu = flops_achieved / flops_promised
+        return mfu
+
+    @torch.inference_mode()  # TODO: implement with k/v cache?
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+        """
+        Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and
+        complete the sequence max_new_tokens times, feeding the predictions back into
+        the model each time.
+        Most likely you'll want to make sure to be in model.eval() mode of operation for
+          this.
+        Also note this is a super inefficient version of sampling with no key/value
+        cache.
+        """
+        for _ in range(max_new_tokens):
+            # if the sequence context is growing too long we must crop it at block_size
+            idx_cond = (
+                idx
+                if idx.size(1) <= self.args.max_context_length
+                else idx[:, -self.args.max_context_length :]
+            )
+            # forward the model to get the logits for the index in the sequence
+            logits = self(idx_cond)
+            logits = logits[:, -1, :]  # crop to just the final time step
+            if temperature == 0.0:
+                # "sample" the single most likely index
+                _, idx_next = torch.topk(logits, k=1, dim=-1)
+            else:
+                # pluck the logits at the final step and scale by desired temperature
+                logits = logits / temperature
+                # optionally crop the logits to only the top k options
+                if top_k is not None:
+                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                    logits[logits < v[:, [-1]]] = -float("Inf")
+                # apply softmax to convert logits to (normalized) probabilities
+                probs = F.softmax(logits, dim=-1)
+                idx_next = torch.multinomial(probs, num_samples=1)
+            # append sampled index to the running sequence and continue
+            idx = torch.cat((idx, idx_next), dim=1)
+
+        return idx
+
+
+if __name__ == "__main__":
+    model_args = ModelArgs()
+    tokens = torch.randint(low=0, high=300, size=(1, 10))  # create random int
+    x = tokens[:, :-1]
+    y = tokens[:, 1:]
+    model = Transformer(model_args)
+    model.configure_optimizer(0.002, 0.1, (0.9, 0.95), "cpu")
+    model.eval()
+    for idx in model.generate(x, 10):
+        print(idx)
