@@ -83,21 +83,19 @@ def legacy_export(model, filepath):
 
     # first write out the header
     hidden_dim = model.layers[0].feed_forward.w1.weight.shape[0]
-    p = model.params
+    p = model.args
     shared_classifier = torch.equal(model.tok_embeddings.weight, model.output.weight)
     # legacy format uses negative/positive vocab size as a shared classifier flag
     if not shared_classifier:
         p.vocab_size = -p.vocab_size
-    n_kv_heads = p.n_heads if p.n_kv_heads is None else p.n_kv_heads
     header = struct.pack(
-        "iiiiiii",
+        "iiiiii",
         p.dim,
         hidden_dim,
         p.n_layers,
         p.n_heads,
-        n_kv_heads,
         p.vocab_size,
-        p.max_seq_len,
+        p.max_context_length,
     )
     out_file.write(header)
 
@@ -107,18 +105,18 @@ def legacy_export(model, filepath):
     # now all the layers
     # attention weights
     for layer in model.layers:
-        serialize_fp32(out_file, layer.attention_norm.weight)
+        serialize_fp32(out_file, layer.attn_norm.weight)
     for layer in model.layers:
-        serialize_fp32(out_file, layer.attention.wq.weight)
+        serialize_fp32(out_file, layer.attn.wq.weight)
     for layer in model.layers:
-        serialize_fp32(out_file, layer.attention.wk.weight)
+        serialize_fp32(out_file, layer.attn.wk.weight)
     for layer in model.layers:
-        serialize_fp32(out_file, layer.attention.wv.weight)
+        serialize_fp32(out_file, layer.attn.wv.weight)
     for layer in model.layers:
-        serialize_fp32(out_file, layer.attention.wo.weight)
+        serialize_fp32(out_file, layer.attn.wo.weight)
     # ffn weights
     for layer in model.layers:
-        serialize_fp32(out_file, layer.ffn_norm.weight)
+        serialize_fp32(out_file, layer.ff_norm.weight)
     for layer in model.layers:
         serialize_fp32(out_file, layer.feed_forward.w1.weight)
     for layer in model.layers:
@@ -128,8 +126,8 @@ def legacy_export(model, filepath):
     # final rmsnorm
     serialize_fp32(out_file, model.norm.weight)
     # freqs_cis
-    serialize_fp32(out_file, model.freqs_cos[: p.max_seq_len])
-    serialize_fp32(out_file, model.freqs_sin[: p.max_seq_len])
+    serialize_fp32(out_file, model.freqs_cos[: p.max_context_length])
+    serialize_fp32(out_file, model.freqs_sin[: p.max_context_length])
 
     # final classifier weights
     if not shared_classifier:
