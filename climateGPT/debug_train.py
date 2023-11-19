@@ -22,7 +22,7 @@ log = structlog.get_logger()
 @dataclass
 class EvalConfig:
     out_dir: Path = Path("out")
-    eval_interval: int = 2000
+    eval_interval: int = 100
     log_interval: int = 100
     eval_iters: int = 100
     always_save_checkpoint: bool = (
@@ -110,15 +110,6 @@ def get_lr(
 
 
 # -----------------------------------------------------------------------------
-
-
-# TODO: simplify debug train
-# TODO: understand what is MFU / how to optimize it
-# TODO: read about gradient cliping
-# TODO: read chinchilla paper
-# TODO: add more text data
-# TODO: add validation in iter_batches
-# TODO: train tokenizer
 
 
 if __name__ == "__main__":
@@ -409,6 +400,7 @@ if __name__ == "__main__":
 
     # training
     train_batch_iter = iter_batches(split="train")
+    X, Y = next(train_batch_iter)  # fetch the very first batch
     t0 = time.time()
     local_iter_num = 0  # number of iterations in the lifetime of this process
     raw_model = model
@@ -465,10 +457,10 @@ if __name__ == "__main__":
         # forward backward update, with optional gradient accumulation
 
         for micro_step in range(batch_config.gradient_accumulation_steps):
-            X, Y = next(train_batch_iter)
             logits = model(X, Y)
             loss = raw_model.last_loss
             loss = loss / batch_config.gradient_accumulation_steps  # type: ignore
+            X, Y = next(train_batch_iter)  # fetch the next batch asynchrounously
             loss.backward()  # type: ignore
         # clip the gradient
         if optimizer_config.grad_clip != 0.0:
@@ -491,6 +483,7 @@ if __name__ == "__main__":
                 mfu = raw_model.estimate_mfu(
                     batch_config.batch_size * batch_config.gradient_accumulation_steps,
                     dt,
+                    flops_promised=2.6e12,
                 )
                 running_mfu = (
                     mfu if running_mfu == -1.0 else 0.9 * running_mfu + 0.1 * mfu
@@ -508,3 +501,11 @@ if __name__ == "__main__":
         # termination conditions
         if iter_num > optimizer_config.max_iters:
             break
+
+# TODO: test first model generation in a dedicated sample script
+# TODO: add more text data
+# TODO: add validation in iter_batches
+# TODO: add the possibility to resume training from a checkpoint
+# TODO: read about gradient cliping
+# TODO: read chinchilla paper
+# TODO: train tokenizer
