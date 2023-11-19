@@ -512,7 +512,7 @@ class TransformerBlock(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.attn = Attention(args)
-        self.feedforward = FeedForward(
+        self.feed_forward = FeedForward(
             dim=args.dim,
             hidden_dim=args.hidden_dim,
             hidden_dim_multiplier=args.hidden_dim_multiplier,
@@ -545,7 +545,7 @@ class TransformerBlock(nn.Module):
         x_attn_norm = self.attn_norm(x)
         h = x + self.attn(x_attn_norm, freqs_cos, freqs_sin)  # residual connection here
         x_ff_norm = self.ff_norm(h)
-        output = h + self.feedforward(x_ff_norm)  # residual connection here
+        output = h + self.feed_forward(x_ff_norm)  # residual connection here
 
         return output
 
@@ -678,7 +678,7 @@ class Transformer(nn.Module):
 
         return optimizer
 
-    def estimate_mfu(self, fwdbwd_per_iter, dt):
+    def estimate_mfu(self, fwdbwd_per_iter, dt, flops_promised=312e12):
         """
         estimate model flops utilization (MFU) in units of A100 bfloat16 peak FLOPS
         """
@@ -697,7 +697,10 @@ class Transformer(nn.Module):
         flops_per_iter = flops_per_fwdbwd * fwdbwd_per_iter
         # express our flops throughput as ratio of A100 bfloat16 peak flops
         flops_achieved = flops_per_iter * (1.0 / dt)  # per second
-        flops_promised = 312e12  # A100 GPU bfloat16 peak flops is 312 TFLOPS
+        flops_promised = flops_promised
+        # A100 GPU bfloat16 peak flops is 312 TFLOPS
+        # M1 MPS GPU float16 peak flops is 2.6 TFLOPS
+
         mfu = flops_achieved / flops_promised
         return mfu
 
