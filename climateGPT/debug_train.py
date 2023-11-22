@@ -22,7 +22,7 @@ log = structlog.get_logger()
 @dataclass
 class EvalConfig:
     out_dir: Path = Path("out")
-    eval_interval: int = 100
+    eval_interval: int = 1000
     log_interval: int = 100
     eval_iters: int = 100
     always_save_checkpoint: bool = (
@@ -502,9 +502,7 @@ if __name__ == "__main__":
         if iter_num > optimizer_config.max_iters:
             break
 
-# TODO: test first model generation in a dedicated sample script
-# TODO: add more text data
-# TODO: add validation in iter_batches
+
 # TODO: add the possibility to resume training from a checkpoint
 # TODO: read about gradient cliping
 # TODO: read chinchilla paper

@@ -22,5 +22,5 @@ class TestTokenIterator:
         )
 
         x, y = next(iter_batches)
-        assert (x == torch.tensor([[385, 1006, 29887, 6170, 358, 284]])).all()
-        assert (y == torch.tensor([[1006, 29887, 6170, 358, 284, 3573]])).all()
+        assert (x == torch.tensor([[259, 13, 29934, 5921, 2, 1]])).all()
+        assert (y == torch.tensor([[13, 29934, 5921, 2, 1, 450]])).all()

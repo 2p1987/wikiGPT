@@ -24,7 +24,10 @@ class TokenIterator(torch.utils.data.IterableDataset):
         self.context_length = context_length
         self.split = split
         self.verbose = verbose
-        self.filenames = sorted(self.pretokenized_source.glob("*.bin"))
+        total_filenames = sorted(self.pretokenized_source.glob("*.bin"))
+        self.filenames = (
+            total_filenames[1:] if self.split == "train" else total_filenames[:1]
+        )
         if len(self.filenames) == 0:
             raise ValueError(
                 "The pretokenized source folder does not contain any .bin files."
