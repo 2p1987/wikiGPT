@@ -35,7 +35,7 @@ class EvalConfig:
 @dataclass
 class BatchConfig:
     batch_size: int = (
-        32  # if gradient_accumulation_steps > 1, this is the micro-batch size
+        1  # if gradient_accumulation_steps > 1, this is the micro-batch size
     )
     gradient_accumulation_steps: int = 1  # used to simulate larger batch sizes
     pretokenized_folder: str = "climateGPT/data/tok32000"
@@ -60,7 +60,7 @@ class OptimizerConfig:
 # system
 @dataclass
 class SystemConfig:
-    device: str = "mps"  # 'cpu', 'cuda', "mps"
+    device: str = "mps:0"  # 'cpu', 'cuda', "mps"
     dtype: str = "float16"  # float32|bfloat16|float16
     # compile: bool = True  # use PyTorch 2.0 to compile the model to be faster
 
@@ -415,7 +415,8 @@ if __name__ == "__main__":
         model.load_state_dict(state_dict)
         iter_num = checkpoint["iter_num"]
         best_val_loss = checkpoint["best_val_loss"]
-        model.to(system_config.device)
+
+    model.to(system_config.device)
 
     optimizer = model.configure_optimizer(
         optimizer_config.weight_decay,
