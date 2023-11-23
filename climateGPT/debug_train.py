@@ -28,6 +28,7 @@ class EvalConfig:
     always_save_checkpoint: bool = (
         False  # if True, always save a checkpoint after each eval
     )
+    init_weights: str = "random"  # or "checkpoint"
 
 
 # data
@@ -146,6 +147,12 @@ if __name__ == "__main__":
         type=bool,
         help="Whether to save a checkpoint after each evaluation",
         default=EvalConfig.always_save_checkpoint,
+    )
+    parser.add_argument(
+        "--init-weights",
+        type=str,
+        help="How to initialize the model (random or checkpoint)",
+        default=EvalConfig.init_weights,
     )
 
     parser.add_argument(
@@ -311,6 +318,7 @@ if __name__ == "__main__":
         log_interval=args.log_interval,
         eval_iters=args.eval_iters,
         always_save_checkpoint=args.always_save_checkpoint,
+        init_weights=args.init_weights,
     )
     model_config = ModelArgs(
         dim=args.dim,
@@ -367,6 +375,55 @@ if __name__ == "__main__":
     eval_config.out_dir.mkdir(exist_ok=True)
     # -----------------------------------------------------------------------------
     torch.manual_seed(1337 + batch_config.seed_offset)
+
+    # -----------------------------------------------------------------------------
+    if eval_config.init_weights == "random":
+        iter_num = 0
+        best_val_loss = 1e9
+        # model init
+        log.info("Initializing a new model from scratch")
+        model = Transformer(model_config)
+    elif eval_config.init_weights == "checkpoint":
+        log.info(f"Resuming training from {eval_config.out_dir}")
+        # resume training from a checkpoint.
+        ckpt_path = Path(eval_config.out_dir, "ckpt.pt")
+        checkpoint = torch.load(ckpt_path, map_location=system_config.device)
+        checkpoint_model_args = checkpoint["model_args"]
+        # force these config attributes to be equal otherwise we can't even resume
+        #  training the rest of the attributes (e.g. dropout) can stay as desired from
+        # command line
+        for k in [
+            "dim",
+            "n_layers",
+            "n_heads",
+            "vocab_size",
+            "multiple_of",
+            "hidden_dim",
+            "hidden_dim_multiplier",
+            "max_context_length",
+        ]:
+            setattr(model_config, k, getattr(checkpoint_model_args, k))
+        # create the model
+        model = Transformer(model_config)
+        state_dict = checkpoint["model"]
+        # fix the keys of the state dictionary :(
+        # honestly no idea how checkpoints sometimes get this prefix, have to debug more
+        unwanted_prefix = "_orig_mod."
+        for k, v in list(state_dict.items()):
+            if k.startswith(unwanted_prefix):
+                state_dict[k[len(unwanted_prefix) :]] = state_dict.pop(k)
+        model.load_state_dict(state_dict)
+        iter_num = checkpoint["iter_num"]
+        best_val_loss = checkpoint["best_val_loss"]
+        model.to(system_config.device)
+
+    optimizer = model.configure_optimizer(
+        optimizer_config.weight_decay,
+        optimizer_config.learning_rate,
+        (optimizer_config.beta1, optimizer_config.beta2),
+        system_config.device,
+    )
+
     # -----------------------------------------------------------------------------
     # Dataloader
     iter_params = {
@@ -382,22 +439,6 @@ if __name__ == "__main__":
         num_workers=batch_config.num_workers,
         **iter_params,
     )
-
-    # -----------------------------------------------------------------------------
-    iter_num = 0
-    best_val_loss = 1e9
-    # model init
-    log.info("Initializing a new model from scratch")
-    model = Transformer(model_config)
-    model.to(system_config.device)
-
-    optimizer = model.configure_optimizer(
-        optimizer_config.weight_decay,
-        optimizer_config.learning_rate,
-        (optimizer_config.beta1, optimizer_config.beta2),
-        system_config.device,
-    )
-
     # training
     train_batch_iter = iter_batches(split="train")
     X, Y = next(train_batch_iter)  # fetch the very first batch
