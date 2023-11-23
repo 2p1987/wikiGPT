@@ -26,7 +26,7 @@ class TokenIterator(torch.utils.data.IterableDataset):
         self.verbose = verbose
         total_filenames = sorted(self.pretokenized_source.glob("*.bin"))
         self.filenames = (
-            total_filenames[1:] if self.split == "train" else total_filenames[:1]
+            total_filenames[4:] if self.split == "train" else total_filenames[:4]
         )
         if len(self.filenames) == 0:
             raise ValueError(
@@ -94,7 +94,7 @@ class TokenIterator(torch.utils.data.IterableDataset):
 
 
 if __name__ == "__main__":
-    ds = TokenIterator(Path("climateGPT/data/tok32000"), 6, "train")
+    ds = TokenIterator(Path("climateGPT/data/tok32000"), 6, "val")
 
     dl = torch.utils.data.DataLoader(ds, batch_size=1, pin_memory=True, num_workers=2)
     for i, (x, y) in enumerate(dl):
