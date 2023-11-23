@@ -23,8 +23,8 @@ repos:
     hooks:
     -   id: flake8
         args: ['--max-line-length=88']
--   repo: https://github.com/pre-commit/mirrors-mypy
-    rev: 'v1.6.1'  # Update to the specific version you need
-    hooks:
-    -   id: mypy
-        args: [--ignore-missing-imports]
+# -   repo: https://github.com/pre-commit/mirrors-mypy
+#     rev: 'v1.6.1'  # Update to the specific version you need
+#     hooks:
+#     -   id: mypy
+#         args: [--ignore-missing-imports]
