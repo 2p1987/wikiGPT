@@ -16,6 +16,8 @@ dependencies:
   - mypy
   - pre-commit
   - pytest
+  - datasets
+  - huggingface_hub
   - pip
   - pip:
     - -e .

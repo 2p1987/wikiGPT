@@ -3,14 +3,15 @@
 
 import argparse
 import json
-import random
 import shutil
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import structlog
+from datasets import load_dataset
 from tqdm import tqdm
 
 from climateGPT.tokenize import Tokenizer
@@ -18,6 +19,12 @@ from climateGPT.tokenize import Tokenizer
 log = structlog.get_logger()
 
 DATA_CACHE_DIR = Path("climateGPT/data")
+
+
+def load_dataset_from_hf() -> pd.DataFrame:
+    dataset = load_dataset("pierre-pessarossi/wikipedia-climate-data")
+
+    return dataset["train"].to_pandas()
 
 
 class UserCancellationError(Exception):
@@ -34,7 +41,9 @@ def clear_folder(path):
             item.unlink()  # Delete files
 
 
-def create_shuffled_shards(n_shards: int, seed: int, data_cache_dir: str) -> None:
+def create_shuffled_shards(
+    df: pd.DataFrame, n_shards: int, seed: int, data_cache_dir: Path
+) -> None:
     """
     Each original shard is obtained as a thematic search from wikipedia
     (see https://github.com/2p1987/wikicollect for more info).
@@ -44,23 +53,13 @@ def create_shuffled_shards(n_shards: int, seed: int, data_cache_dir: str) -> Non
     them as randomly generated shards.
     These shuffled shards will be our input to pretokenize the dataset.
     """
-    shards_folder_path = Path(data_cache_dir, "original_shards")
-    shard_filenames = sorted(shards_folder_path.glob("*.json"))
-    # load all the data in a long list
-    full_data = []
-    for shard in shard_filenames:
-        with open(shard, "r") as f:
-            for line in f:
-                tmp = json.loads(line)
-                full_data.append(tmp)
     # shuffle articles
-    random.seed(seed)
-    random.shuffle(full_data)
+    shuffled_df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
     # save in the number of required shards
-    full_data_len = len(full_data)
-    shard_len = full_data_len // n_shards
-    extras = full_data_len % n_shards
-    shuffled_shards_folder_path = Path(shards_folder_path.parent, "shuffled_shards")
+    shuffled_df_len = len(shuffled_df)
+    shard_len = shuffled_df_len // n_shards
+    extras = shuffled_df_len % n_shards
+    shuffled_shards_folder_path = Path(data_cache_dir, "shuffled_shards")
     shuffled_shards_folder_path.mkdir(exist_ok=True)
     # ask to remove everything in the folder if it already exists
     if any(shuffled_shards_folder_path.iterdir()):
@@ -89,8 +88,8 @@ deleted."
         start_idx = i * shard_len + min(i, extras)
         stop_idx = (i + 1) * shard_len + min(i + 1, extras)
         with open(shuffle_shard_path, "w", encoding="utf-8") as f:
-            for line in full_data[start_idx:stop_idx]:
-                json.dump(line, f)
+            for line in shuffled_df[start_idx:stop_idx].iterrows():
+                json.dump({"title": line[1]["title"], "content": line[1]["content"]}, f)
                 f.write("\n")
     log.info(
         f"Original shards have been shuffled and saved locally at \
@@ -121,9 +120,9 @@ def process_shard(args, tokenizer_path: Path, data_cache_dir: Path):
         f.write(all_tokens_np.tobytes())
     # calculate the average sequence length (they are separated by BOS=1)
     avg_seq_len = all_tokens_np.size / ((all_tokens_np == 1).sum())
-    log.info(
-        f"Saved {tokenized_filename} with average sequence length {avg_seq_len: .2f}"
-    )
+    log.info(f"Saved {tokenized_filename}")
+    log.info(f"Average sequence length: {avg_seq_len}")
+    log.info(f"Number of tokens: {all_tokens_np.size}")
 
 
 def pretokenize(tokenizer_path: str, data_cache_dir: str):
@@ -131,6 +130,7 @@ def pretokenize(tokenizer_path: str, data_cache_dir: str):
     shuffled_shard_folder = Path(data_cache_dir, "shuffled_shards")
     data_cache_dir_ = Path(data_cache_dir)
     tokenizer_path_ = Path(tokenizer_path)
+
     if tokenizer_path_.exists() is False:
         raise ValueError(
             f"Tokenizer model path {tokenizer_path_.as_posix()} does not exist."
@@ -199,8 +199,14 @@ if __name__ == "__main__":
 
     if args.task == "shuffle":
         log.info("Shuffling original shards.")
+        full_data = load_dataset_from_hf()
+        log.info("Loaded dataset from HuggingFace.")
+        data_cache_dir = Path(args.data_cache_dir)
         create_shuffled_shards(
-            n_shards=args.n_shards, seed=args.seed, data_cache_dir=args.data_cache_dir
+            df=full_data,
+            n_shards=args.n_shards,
+            seed=args.seed,
+            data_cache_dir=args.data_cache_dir,
         )
 
     elif args.task == "pretokenize":
