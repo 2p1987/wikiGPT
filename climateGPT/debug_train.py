@@ -38,7 +38,6 @@ class BatchConfig:
         1  # if gradient_accumulation_steps > 1, this is the micro-batch size
     )
     gradient_accumulation_steps: int = 1  # used to simulate larger batch sizes
-    pretokenized_folder: str = "climateGPT/data/tok32000"
     num_workers: int = 0
     seed_offset: int = 0
 
@@ -166,12 +165,6 @@ if __name__ == "__main__":
         type=int,
         help="Number of gradient accumulation steps",
         default=BatchConfig.gradient_accumulation_steps,
-    )
-    parser.add_argument(
-        "--pretokenized-folder",
-        type=str,
-        help="Path to the folder with pretokenized data",
-        default=BatchConfig.pretokenized_folder,
     )
     parser.add_argument(
         "--num-workers",
@@ -335,7 +328,6 @@ if __name__ == "__main__":
     batch_config = BatchConfig(
         batch_size=args.batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
-        pretokenized_folder=args.pretokenized_folder,
         num_workers=args.num_workers,
         seed_offset=args.seed_offset,
     )
@@ -428,7 +420,7 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------------------
     # Dataloader
     iter_params = {
-        "pretokenized_source": Path(batch_config.pretokenized_folder),
+        "pretokenized_source": Path(f"climateGPT/data/tok{model_config.vocab_size}"),
         "context_length": model_config.max_context_length,
         "split": "train",
     }
@@ -545,7 +537,7 @@ if __name__ == "__main__":
             break
 
 
-# TODO: add the possibility to resume training from a checkpoint
-# TODO: read about gradient cliping
 # TODO: read chinchilla paper
-# TODO: train tokenizer
+# TODO: create a w&b account
+# TODO: read about gradient cliping
+# TODO: read about lr decay
