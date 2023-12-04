@@ -1,0 +1,16 @@
+This logbook traces all training attempts
+
+2023-12-04
+
+cmd:
+python -m climateGPT.debug_train \
+--dim 512 --n-layers 2 --n-heads 8 --hidden-dim 512 --max-context-length 512 \
+--vocab-size 2000 --num-workers 4 --batch-size 32 --dropout 0.3 --learning-rate 1e-3
+
+initial_loss: 7.69
+train_loss:
+val_loss:
+
+sample:
+
+---
