@@ -61,7 +61,7 @@ class OptimizerConfig:
 class SystemConfig:
     device: str = "mps:0"  # 'cpu', 'cuda', "mps"
     dtype: str = "float16"  # float32|bfloat16|float16
-    # compile: bool = True  # use PyTorch 2.0 to compile the model to be faster
+    compile: bool = False  # use PyTorch 2.0 to compile the model to be faster
 
 
 # -----------------------------------------------------------------------------
@@ -242,6 +242,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="Enable pytorch model compiling (requires torch>=2.0",
+        default=SystemConfig.compile,
+    )
+
+    parser.add_argument(
         "--dim",
         type=int,
         help="Dimension of the model embeddings",
@@ -344,6 +351,7 @@ if __name__ == "__main__":
     system_config = SystemConfig(
         device=args.device,
         dtype=args.dtype,
+        compile=args.compile,
     )
 
     # -----------------------------------------------------------------------------
@@ -409,6 +417,12 @@ if __name__ == "__main__":
         best_val_loss = checkpoint["best_val_loss"]
 
     model.to(system_config.device)
+
+    # compile the model
+    if system_config.compile:
+        log.info("compiling the model... (takes a ~minute)")
+        unoptimized_model = model
+        model = torch.compile(model)  # requires PyTorch 2.0
 
     optimizer = model.configure_optimizer(
         optimizer_config.weight_decay,
@@ -536,8 +550,7 @@ if __name__ == "__main__":
         if iter_num > optimizer_config.max_iters:
             break
 
-
-# TODO: read chinchilla paper
+# TODO: add option to save model to HF hub
 # TODO: create a w&b account
 # TODO: read about gradient cliping
 # TODO: read about lr decay
