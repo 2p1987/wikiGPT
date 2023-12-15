@@ -18,6 +18,7 @@ dependencies:
   - pytest
   - datasets
   - huggingface_hub
+  - optuna
   - pip
   - pip:
     - -e .
