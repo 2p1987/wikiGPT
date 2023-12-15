@@ -5,8 +5,8 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import torch
-from model import Transformer
 
+from climateGPT.model import Transformer
 from climateGPT.tokenize import Tokenizer
 
 # -----------------------------------------------------------------------------
@@ -66,7 +66,7 @@ if compile:
 
 # load the tokenizer
 vocab_size = gptconf.vocab_size
-tokenizer_model_path = "climateGPT/models/tokenizer.model"
+tokenizer_model_path = "climateGPT/models/tok2000.model"
 enc = Tokenizer(tokenizer_model_path=Path(tokenizer_model_path))
 
 # encode the beginning of the prompt
