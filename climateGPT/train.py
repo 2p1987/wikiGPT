@@ -2,6 +2,7 @@ import argparse
 import math
 import os
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -65,6 +66,11 @@ class SystemConfig:
 
 
 # -----------------------------------------------------------------------------
+torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
+torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
+
+
+# -----------------------------------------------------------------------------
 config_keys = [
     k
     for k, v in globals().items()
@@ -84,8 +90,9 @@ def estimate_loss(model, iter_batches, eval_iters: int) -> Dict[str, float]:
         losses = torch.zeros(eval_iters)  # keep on CPU
         for k in range(eval_iters):
             X, Y = next(batch_iter)
-            _ = model(X, Y)
-            loss = raw_model.last_loss
+            with ctx:
+                _ = model(X, Y)
+                loss = raw_model.last_loss
             losses[k] = loss.item()  # type: ignore
         out[split] = losses.mean()
     model.train()
@@ -354,6 +361,14 @@ if __name__ == "__main__":
         compile=args.compile,
     )
 
+    ctx = (
+        nullcontext()
+        if system_config.device != "cuda"
+        else torch.amp.autocast(
+            device_type=system_config.device, dtype=system_config.dtype
+        )
+    )
+
     # -----------------------------------------------------------------------------
     # fixing some hyperparams to sensible defaults
     lr_decay_iters = optimizer_config.max_iters  # should be ~= max_iters per Chinchilla
@@ -505,9 +520,10 @@ if __name__ == "__main__":
         # forward backward update, with optional gradient accumulation
 
         for micro_step in range(batch_config.gradient_accumulation_steps):
-            logits = model(X, Y)
-            loss = raw_model.last_loss
-            loss = loss / batch_config.gradient_accumulation_steps  # type: ignore
+            with ctx:
+                logits = model(X, Y)
+                loss = raw_model.last_loss
+                loss = loss / batch_config.gradient_accumulation_steps  # type: ignore
             X, Y = next(train_batch_iter)  # fetch the next batch asynchrounously
             loss.backward()  # type: ignore
         # clip the gradient
@@ -550,7 +566,8 @@ if __name__ == "__main__":
         if iter_num > optimizer_config.max_iters:
             break
 
-# TODO: add option to save model to HF hub
-# TODO: create a w&b account
-# TODO: read about gradient cliping
-# TODO: read about lr decay
+# TODO: setup w&b tracking
+
+# TODO: add MoE layer and training loop
+# TODO: revamp code from FastGPT repo
+# TODO: create instruct dataset
