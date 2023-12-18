@@ -20,6 +20,7 @@ tqdm = "*"
 datasets = "*"
 huggingface-hub = "*"
 optuna = "*"
+wandb = "*"
 
 [tool.poetry.dev-dependencies]
 pytest = "*"

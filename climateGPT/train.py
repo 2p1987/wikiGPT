@@ -4,6 +4,7 @@ import os
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import Dict
@@ -11,6 +12,7 @@ from typing import Dict
 import structlog
 import torch
 
+import wandb
 from climateGPT.export import model_export
 from climateGPT.iterate import TokenIterator
 from climateGPT.model import ModelArgs, Transformer
@@ -63,6 +65,14 @@ class SystemConfig:
     device: str = "mps:0"  # 'cpu', 'cuda', "mps"
     dtype: str = "float16"  # float32|bfloat16|float16
     compile: bool = False  # use PyTorch 2.0 to compile the model to be faster
+
+
+# logging
+@dataclass
+class WandbLog:
+    wandb_log: bool = False
+    wandb_project: str = "climateGPT"
+    wandb_run_name: str = "run" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 
 
 # -----------------------------------------------------------------------------
@@ -256,6 +266,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--wandb-log",
+        action="store_true",
+        help="Enable logging to wandb",
+        default=WandbLog.wandb_log,
+    )
+
+    parser.add_argument(
         "--dim",
         type=int,
         help="Dimension of the model embeddings",
@@ -360,6 +377,9 @@ if __name__ == "__main__":
         dtype=args.dtype,
         compile=args.compile,
     )
+    wandb_log = WandbLog(
+        wandb_log=args.wandb_log,
+    )
 
     ctx = (
         nullcontext()
@@ -446,6 +466,19 @@ if __name__ == "__main__":
         system_config.device,
     )
 
+    # initialize a GradScaler. If enabled=False scaler is a no-op
+    scaler = torch.cuda.amp.GradScaler(enabled=(system_config.dtype == "float16"))
+
+    # -----------------------------------------------------------------------------
+    # Weight & Biases logging
+    # logging
+    if wandb_log.wandb_log:
+        wandb.init(
+            project=wandb_log.wandb_project,
+            name=wandb_log.wandb_run_name,
+            config=config,
+        )
+
     # -----------------------------------------------------------------------------
     # Dataloader
     iter_params = {
@@ -461,6 +494,7 @@ if __name__ == "__main__":
         num_workers=batch_config.num_workers,
         **iter_params,
     )
+
     # training
     train_batch_iter = iter_batches(split="train")
     X, Y = next(train_batch_iter)  # fetch the very first batch
@@ -498,6 +532,20 @@ if __name__ == "__main__":
                 train_loss=f"{losses['train']:.4f}",
                 val_loss=f"{losses['val']:.4f}",
             )
+            try:
+                wandb.log(
+                    {
+                        "iter": iter_num,
+                        "tokens": iter_num * tokens_per_iter,
+                        "loss/train": losses["train"],
+                        "loss/val": losses["val"],
+                        "lr": lr,
+                        "mfu": running_mfu * 100,  # convert to percentage
+                    },
+                    step=iter_num,
+                )
+            except Exception as e:
+                log.info(f"logging to wandb failed: {e}")
             if losses["val"] < best_val_loss or eval_config.always_save_checkpoint:
                 best_val_loss = losses["val"]
                 if iter_num > 0:
@@ -531,7 +579,9 @@ if __name__ == "__main__":
             torch.nn.utils.clip_grad_norm_(
                 model.parameters(), optimizer_config.grad_clip
             )
-        optimizer.step()
+        # step the optimizer and scaler if training in fp16
+        scaler.step(optimizer)
+        scaler.update()
         # flush the gradients as soon as we can, no need for this memory anymore
         optimizer.zero_grad(set_to_none=True)
 
@@ -566,8 +616,7 @@ if __name__ == "__main__":
         if iter_num > optimizer_config.max_iters:
             break
 
-# TODO: setup w&b tracking
 
 # TODO: add MoE layer and training loop
-# TODO: revamp code from FastGPT repo
 # TODO: create instruct dataset
+# TODO: revamp code from FastGPT repo
