@@ -60,7 +60,7 @@ def create_shuffled_shards(
     shard_len = shuffled_df_len // n_shards
     extras = shuffled_df_len % n_shards
     shuffled_shards_folder_path = Path(data_cache_dir, "shuffled_shards")
-    shuffled_shards_folder_path.mkdir(exist_ok=True)
+    shuffled_shards_folder_path.mkdir(parents=True, exist_ok=True)
     # ask to remove everything in the folder if it already exists
     if any(shuffled_shards_folder_path.iterdir()):
         response = (
