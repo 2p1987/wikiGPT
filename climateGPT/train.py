@@ -380,13 +380,15 @@ if __name__ == "__main__":
     wandb_log = WandbLog(
         wandb_log=args.wandb_log,
     )
-
+    ptdtype = {
+        "float32": torch.float32,
+        "bfloat16": torch.bfloat16,
+        "float16": torch.float16,
+    }[system_config.dtype]
     ctx = (
         nullcontext()
         if system_config.device != "cuda"
-        else torch.amp.autocast(
-            device_type=system_config.device, dtype=system_config.dtype
-        )
+        else torch.amp.autocast(device_type=system_config.device, dtype=ptdtype)
     )
 
     # -----------------------------------------------------------------------------
