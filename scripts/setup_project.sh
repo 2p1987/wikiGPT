@@ -1,6 +1,4 @@
 #!/bin/bash
-# clone repository
-git clone https://github.com/2p1987/climateGPT.git
 cd climateGPT
 python -m venv climate-gpt
 
