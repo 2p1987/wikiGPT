@@ -160,7 +160,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--always-save-checkpoint",
-        type=bool,
+        action="store_true",
         help="Whether to save a checkpoint after each evaluation",
         default=EvalConfig.always_save_checkpoint,
     )
