@@ -16,6 +16,7 @@ import wandb
 from climateGPT.export import model_export
 from climateGPT.iterate import TokenIterator
 from climateGPT.model import ModelArgs, Transformer
+from climateGPT.tokenize import Tokenizer
 
 log = structlog.get_logger()
 
@@ -392,6 +393,16 @@ if __name__ == "__main__":
     )
 
     # -----------------------------------------------------------------------------
+    # Weight & Biases logging
+    # logging
+    if wandb_log.wandb_log:
+        wandb.init(
+            project=wandb_log.wandb_project,
+            name=wandb_log.wandb_run_name,
+            config=config,
+        )
+
+    # -----------------------------------------------------------------------------
     # fixing some hyperparams to sensible defaults
     lr_decay_iters = optimizer_config.max_iters  # should be ~= max_iters per Chinchilla
     min_lr = 0.0  # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
@@ -472,21 +483,11 @@ if __name__ == "__main__":
     scaler = torch.cuda.amp.GradScaler(enabled=(system_config.dtype == "float16"))
 
     # -----------------------------------------------------------------------------
-    # Weight & Biases logging
-    # logging
-    if wandb_log.wandb_log:
-        wandb.init(
-            project=wandb_log.wandb_project,
-            name=wandb_log.wandb_run_name,
-            config=config,
-        )
-
-    # -----------------------------------------------------------------------------
     # Dataloader
     iter_params = {
         "pretokenized_source": Path(f"climateGPT/data/tok{model_config.vocab_size}"),
         "context_length": model_config.max_context_length,
-        "split": "train",
+        # "verbose": True,
     }
 
     iter_batches = partial(
@@ -617,6 +618,38 @@ if __name__ == "__main__":
         # termination conditions
         if iter_num > optimizer_config.max_iters:
             break
+
+    model.eval()
+
+    # load the tokenizer
+    tokenizer_model_path = f"climateGPT/models/tok{model_config.vocab_size}.model"
+    enc = Tokenizer(tokenizer_model_path=Path(tokenizer_model_path))
+
+    num_samples = 1  # number of samples to draw
+    max_new_tokens = 100  # number of tokens generated in each sample
+    temperature = (
+        1.0  # 1.0 = no change, < 1.0 = less random, > 1.0 = more random, in predictions
+    )
+    top_k = 300  # retain only the top_k most likely tokens, clamp others to have 0
+    # probability
+    tokenizer = ""  # override the tokenizer model path
+    seed = 1337
+
+    # encode the beginning of the prompt
+    start_ids = enc.encode("Climate change is", bos=True, eos=False)
+    x = torch.tensor(start_ids, dtype=torch.long, device=system_config.device)[
+        None, ...
+    ]
+
+    log.info("Run sample generation...")
+    # run generation
+    with torch.no_grad():
+        with ctx:
+            for k in range(num_samples):
+                y = model.generate(
+                    x, max_new_tokens, temperature=temperature, top_k=top_k
+                )
+                log.info(enc.decode(y[0].tolist()))
 
 
 # TODO: add MoE layer and training loop
