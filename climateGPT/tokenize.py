@@ -19,7 +19,7 @@ log = structlog.get_logger()
 
 def train_vocab(vocab_size, model_dir: str, data_dir: Union[str, Path]):
     """
-    Trains a custom sentencepiece tokenizer on the TinyStories dataset.
+    Trains a custom sentencepiece tokenizer on a local dataset.
     The custom tokenizer files will be saved in DATA_CACHE_DIR/tok{N} directories,
     where N is the vocab size. This is also where the pretok .bin files will go.
     """
@@ -31,7 +31,7 @@ def train_vocab(vocab_size, model_dir: str, data_dir: Union[str, Path]):
     # # how many shards we'll use for vocab training, kept low for efficiency
     # num_shards = 10
 
-    # 1) export a large chunk of text as a single text file tiny.txt
+    # 1) export a large chunk of text as a single text file tmp.txt
     data_dir = Path(data_dir)
     shard_filenames = sorted(data_dir.glob("*.json"))
     tmp_folder = Path("tmp")
@@ -59,7 +59,7 @@ def train_vocab(vocab_size, model_dir: str, data_dir: Union[str, Path]):
         vocab_size=vocab_size,
         self_test_sample_size=0,
         input_format="text",
-        character_coverage=1.0,
+        character_coverage=0.99,
         num_threads=os.cpu_count(),
         split_digits=True,
         allow_whitespace_only_pieces=True,
