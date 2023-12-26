@@ -18,13 +18,33 @@ from climateGPT.tokenize import Tokenizer
 
 log = structlog.get_logger()
 
-DATA_CACHE_DIR = Path("climateGPT/data")
+DATA_CACHE_DIR = Path("climateGPT/data/")
 
 
-def load_dataset_from_hf() -> pd.DataFrame:
-    dataset = load_dataset("pierre-pessarossi/wikipedia-climate-data")
-
-    return dataset["train"].to_pandas()
+def load_wiki_sample():
+    log.info("Attempting to load wiki sample from cache")
+    cache_path = Path("climateGPT/data/wiki_cache/wiki_sample.parquet")
+    cache_path.parent.mkdir(exist_ok=True, parents=True)
+    if cache_path.exists():
+        log.info("Wiki sample found in cache")
+        return pd.read_parquet(cache_path)
+    else:
+        log.info("Wiki sample not found in cache, loading from HF")
+        dataset = load_dataset(
+            "wikimedia/wikipedia",
+            "20231101.en",
+            split="train[:8%]",
+            num_proc=8,
+        )
+        df = dataset.to_pandas()
+        df = (
+            df.rename(columns={"text": "content"})
+            .drop(columns=["id", "url"])
+            .reset_index(drop=True)
+        )
+        df.to_parquet(cache_path)
+        log.info("Wiki sample saved to cache")
+    return df
 
 
 class UserCancellationError(Exception):
@@ -199,8 +219,7 @@ if __name__ == "__main__":
 
     if args.task == "shuffle":
         log.info("Shuffling original shards.")
-        full_data = load_dataset_from_hf()
-        log.info("Loaded dataset from HuggingFace.")
+        full_data = load_wiki_sample()
         data_cache_dir = Path(args.data_cache_dir)
         create_shuffled_shards(
             df=full_data,
