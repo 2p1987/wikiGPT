@@ -623,9 +623,10 @@ if __name__ == "__main__":
                 loss = raw_model.last_loss
                 loss = loss / batch_config.gradient_accumulation_steps  # type: ignore
             X, Y = next(train_batch_iter)  # fetch the next batch asynchrounously
-            loss.backward()  # type: ignore
+            scaler.scale(loss).backward()  # type: ignore
         # clip the gradient
         if optimizer_config.grad_clip != 0.0:
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(
                 model.parameters(), optimizer_config.grad_clip
             )
