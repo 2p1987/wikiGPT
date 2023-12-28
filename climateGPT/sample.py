@@ -27,7 +27,7 @@ seed = 1337
 device = "mps"  # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1', etc.
 # dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 # else 'float16' # 'float32' or 'bfloat16' or 'float16'
-dtype = "float32"
+dtype = "float16"
 compile = False  # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
 
@@ -73,13 +73,15 @@ enc = Tokenizer(tokenizer_model_path=Path(tokenizer_model_path))
 if start.startswith("FILE:"):
     with open(start[5:], "r", encoding="utf-8") as f:
         start = f.read()
-start_ids = enc.encode(start, bos=True, eos=False)
+start_ids = enc.encode("Climate change is", bos=True, eos=False)
 x = torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...]
 
+print("Run generation...")
 # run generation
 with torch.no_grad():
     with ctx:
         for k in range(num_samples):
             y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
+            print("---------------")
             print(enc.decode(y[0].tolist()))
             print("---------------")

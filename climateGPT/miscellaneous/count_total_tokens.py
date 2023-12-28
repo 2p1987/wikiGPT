@@ -1,38 +1,15 @@
 from pathlib import Path
 
-import pandas as pd
-
-from climateGPT.tokenize import Tokenizer
+import numpy as np
 
 # from datasets import load_dataset
 
 
-DATA_CACHE_DIR = Path("climateGPT/data")
+PRETOKENIZED_SOURCE = "climateGPT/data/fine_tuning/vocab_2000_context_512"
+PRETOKENIZED_SOURCE = Path(PRETOKENIZED_SOURCE)
 
+total_filenames = sorted(PRETOKENIZED_SOURCE.glob("*.bin"))
+memmaps = [np.memmap(f, dtype=np.uint16, mode="r") for f in total_filenames]
+total_tokens = np.sum([len(m) for m in memmaps])
 
-# climate_data = load_dataset("pierre-pessarossi/wikipedia-climate-data")
-# df = climate_data["train"].to_pandas()
-df = (
-    pd.read_parquet("climateGPT/data/wiki_cache/wiki_sample.parquet")
-    .sample(frac=0.01)
-    .reset_index(drop=True)
-)
-
-# tokenize
-vocab_sizes = [2000, 32000]
-
-tokenizers = []
-for vocab_size in vocab_sizes:
-    tokenizer_path = f"climateGPT/models/tok{vocab_size}.model"
-    tokenizers.append(Tokenizer(Path(tokenizer_path)))
-
-# encode
-for i, tokenizer in enumerate(tokenizers):
-    total_tokens = 0
-    for r in range(len(df)):
-        tokenized_content = tokenizer.encode(df["content"][r], bos=True, eos=True)
-        total_tokens += len(tokenized_content)
-
-    print(
-        f"Tokens (est.): {round(total_tokens * 100):,} for vocab size {vocab_sizes[i]}"
-    )
+print("Total number of tokens:", total_tokens)
