@@ -14,7 +14,7 @@ import torch
 
 import wandb
 from climateGPT.export import model_export
-from climateGPT.iterate import TokenIterator
+from climateGPT.iterate import TokenBatches, TokenIterator
 from climateGPT.model import ModelArgs, Transformer
 from climateGPT.tokenize import Tokenizer
 
@@ -32,6 +32,7 @@ class EvalConfig:
     always_save_checkpoint: bool = (
         False  # if True, always save a checkpoint after each eval
     )
+    training_type: str = "pretraining"  # or "finetuning
     init_weights: str = "random"  # or "checkpoint"
 
 
@@ -44,6 +45,7 @@ class BatchConfig:
     gradient_accumulation_steps: int = 1  # used to simulate larger batch sizes
     num_workers: int = 0
     seed_offset: int = 0
+    dataset_class: str = "iterator"  # or "batches"
 
 
 @dataclass
@@ -166,6 +168,12 @@ if __name__ == "__main__":
         default=EvalConfig.always_save_checkpoint,
     )
     parser.add_argument(
+        "--training-type",
+        type=str,
+        help="Pretraining or fine-tuning (just change the model output name",
+        default=EvalConfig.training_type,
+    )
+    parser.add_argument(
         "--init-weights",
         type=str,
         help="How to initialize the model (random or checkpoint)",
@@ -195,6 +203,12 @@ if __name__ == "__main__":
         type=int,
         help="Seed offset for the dataloader",
         default=BatchConfig.seed_offset,
+    )
+    parser.add_argument(
+        "--dataset-class",
+        type=str,
+        help="Type of dataset to use (iterator or batches)",
+        default=BatchConfig.dataset_class,
     )
 
     parser.add_argument(
@@ -337,12 +351,21 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # instantiate all parameters
+
+    if args.training_type == "finetuning":
+        args.init_weights = "checkpoint"
+        save_name = "ckpt_ft"
+        log.info("Finetuning mode, initializing model from checkpoint")
+    else:
+        save_name = "ckpt"
+
     eval_config = EvalConfig(
         out_dir=args.out_dir,
         eval_interval=args.eval_interval,
         log_interval=args.log_interval,
         eval_iters=args.eval_iters,
         always_save_checkpoint=args.always_save_checkpoint,
+        training_type=args.training_type,
         init_weights=args.init_weights,
     )
     model_config = ModelArgs(
@@ -362,6 +385,7 @@ if __name__ == "__main__":
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         num_workers=args.num_workers,
         seed_offset=args.seed_offset,
+        dataset_class=args.dataset_class,
     )
     optimizer_config = OptimizerConfig(
         learning_rate=args.learning_rate,
@@ -461,7 +485,10 @@ if __name__ == "__main__":
             if k.startswith(unwanted_prefix):
                 state_dict[k[len(unwanted_prefix) :]] = state_dict.pop(k)
         model.load_state_dict(state_dict)
-        iter_num = checkpoint["iter_num"]
+        if eval_config.training_type == "finetuning":
+            iter_num = 0
+        else:
+            iter_num = checkpoint["iter_num"]
         best_val_loss = checkpoint["best_val_loss"]
 
     model.to(system_config.device)
@@ -484,20 +511,38 @@ if __name__ == "__main__":
 
     # -----------------------------------------------------------------------------
     # Dataloader
-    iter_params = {
-        "pretokenized_source": Path(f"climateGPT/data/tok{model_config.vocab_size}"),
-        "context_length": model_config.max_context_length,
-        # "verbose": True,
-    }
 
-    iter_batches = partial(
-        TokenIterator.iter_batches,
-        batch_size=batch_config.batch_size,
-        device=system_config.device,
-        num_workers=batch_config.num_workers,
-        **iter_params,
-    )
+    if batch_config.dataset_class == "iterator":
+        iter_params = {
+            "pretokenized_source": Path(
+                f"climateGPT/data/tok{model_config.vocab_size}"
+            ),
+            "context_length": model_config.max_context_length,
+            # "verbose": True,
+        }
 
+        iter_batches = partial(
+            TokenIterator.iter_batches,
+            batch_size=batch_config.batch_size,
+            device=system_config.device,
+            num_workers=batch_config.num_workers,
+            **iter_params,
+        )
+    else:
+        batch_params = {
+            "pretokenized_source": Path(
+                f"climateGPT/data/fine_tuning/vocab_{model_config.vocab_size}_context_{model_config.max_context_length}"  # noqa
+            ),
+            "context_length": model_config.max_context_length,
+        }
+
+        iter_batches = partial(
+            TokenBatches.iter_batches,
+            batch_size=batch_config.batch_size,
+            device=system_config.device,
+            num_workers=batch_config.num_workers,
+            **batch_params,
+        )
     # training
     train_batch_iter = iter_batches(split="train")
     X, Y = next(train_batch_iter)  # fetch the very first batch
@@ -561,10 +606,12 @@ if __name__ == "__main__":
                         "config": config,
                     }
                     log.info(f"saving checkpoint to {eval_config.out_dir}")
-                    torch.save(checkpoint, os.path.join(eval_config.out_dir, "ckpt.pt"))
+                    torch.save(
+                        checkpoint, os.path.join(eval_config.out_dir, f"{save_name}.pt")
+                    )
                     model_export(
                         raw_model,
-                        os.path.join(eval_config.out_dir, "model.bin"),
+                        os.path.join(eval_config.out_dir, f"{save_name}.bin"),
                         version=0,
                     )
 
@@ -651,6 +698,11 @@ if __name__ == "__main__":
                 )
                 log.info(enc.decode(y[0].tolist()))
 
+
+# TODO: script to count the number of token for a dataset with different tokenizers
+# TODO: create sample of en wiki ~1B tokens
+# TODO: adapt prepare script for en wiki
+# TODO: create new torch dataset for climate data fine tuning
 
 # TODO: add MoE layer and training loop
 # TODO: create instruct dataset
