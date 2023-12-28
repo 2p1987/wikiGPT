@@ -1,3 +1,4 @@
+import os
 import random
 from pathlib import Path
 from typing import Tuple
@@ -110,10 +111,17 @@ class TokenBatches(torch.utils.data.Dataset):
             raise ValueError(
                 "The pretokenized source folder does not contain any .bin files."
             )
-        self.memmaps = [np.memmap(f, dtype=np.uint16, mode="r") for f in self.filenames]
+        # Store the lengths of the memmaps instead of the memmaps themselves
+        self.memmap_lengths = [
+            os.path.getsize(f) // 2 for f in self.filenames
+        ]  # Assuming dtype=np.uint16 (2 bytes)
         self.total_batches = np.cumsum(
-            [len(m) // (self.context_length + 1) for m in self.memmaps]
-        )  # we count the cumulative number of batches in all shards
+            [length // (self.context_length + 1) for length in self.memmap_lengths]
+        )
+
+    def _load_memmap(self, file_index):
+        # Lazily load the memmap
+        return np.memmap(self.filenames[file_index], dtype=np.uint16, mode="r")
 
     def __len__(self):
         return self.total_batches[-1]
@@ -128,7 +136,7 @@ class TokenBatches(torch.utils.data.Dataset):
 
         # Load the sample from the appropriate memmap file
         start_token_idx = idx * (self.context_length + 1)  # +1 for the target
-        chunk = self.memmaps[shard_idx][
+        chunk = self._load_memmap(shard_idx)[
             start_token_idx : start_token_idx + self.context_length + 1
         ]
         # calling .astype will copy the data into a new numpy array, now in RAM
@@ -137,6 +145,21 @@ class TokenBatches(torch.utils.data.Dataset):
         y = chunk[1:]
 
         return x, y
+
+    @classmethod
+    def iter_batches(cls, batch_size, device, num_workers, **iterator_kwargs):
+        ds = cls(**iterator_kwargs)
+        dl = torch.utils.data.DataLoader(
+            ds,
+            batch_size=batch_size,
+            pin_memory=True,
+            num_workers=num_workers,
+            shuffle=True,
+        )
+        for x, y in dl:
+            x = x.to(device, non_blocking=True)
+            y = y.to(device, non_blocking=True)
+            yield x, y
 
 
 if __name__ == "__main__":
@@ -153,11 +176,25 @@ if __name__ == "__main__":
         Path("climateGPT/data/fine_tuning/vocab_2000_context_512"), 512, "train"
     )
 
-    dl = torch.utils.data.DataLoader(
-        ds, batch_size=1, pin_memory=True, num_workers=0, shuffle=True
+    from functools import partial
+
+    iter_params = {
+        "context_length": 512,
+        "pretokenized_source": Path(
+            "climateGPT/data/fine_tuning/vocab_2000_context_512"
+        ),
+    }
+
+    iter_batches = partial(
+        TokenBatches.iter_batches,
+        batch_size=1,
+        num_workers=4,
+        device="cpu",
+        **iter_params
     )
 
-    for i, (x, y) in enumerate(dl):
-        print(len(x[0]))
-        if i > 10:
-            break
+    # training
+    train_batch_iter = iter_batches(split="train")
+    for _ in range(10):
+        X, Y = next(train_batch_iter)
+        print(X.shape, Y.shape)
