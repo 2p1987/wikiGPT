@@ -92,9 +92,4 @@ if __name__ == "__main__":
     log.info("Finished processing all shards.")
 
 
-# TODO: save batches as .bin files
-# TODO: create dataset from .bin files with memmap and index based on context length + 1
-# , adapt len method to take that into account
-# TODO: modify training loop to use the dataset
-
 # TODO: refactor prepare_batch to incorporate all in the prepare script
