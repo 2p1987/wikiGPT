@@ -1,4 +1,3 @@
-import argparse
 import math
 import os
 import time
@@ -11,6 +10,7 @@ from typing import Dict
 
 import structlog
 import torch
+from simple_parsing import ArgumentParser
 
 import wandb
 from climateGPT.export import model_export
@@ -134,332 +134,105 @@ def get_lr(
 
 if __name__ == "__main__":
     # parse all arguments
-    parser = argparse.ArgumentParser(
+    parser = ArgumentParser(
         description="Train a Transformer model on climate data",
     )
-    parser.add_argument(
-        "--out-dir",
-        type=str,
-        help="Directory to save checkpoints and logs",
-        default=EvalConfig.out_dir,
+    parser.add_arguments(
+        EvalConfig,
+        dest="eval_config",
     )
-    parser.add_argument(
-        "--eval-interval",
-        type=int,
-        help="How often to evaluate the model",
-        default=EvalConfig.eval_interval,
+    parser.add_arguments(
+        BatchConfig,
+        dest="batch_config",
     )
-    parser.add_argument(
-        "--log-interval",
-        type=int,
-        help="How often to log training progress",
-        default=EvalConfig.log_interval,
-    )
-    parser.add_argument(
-        "--eval-iters",
-        type=int,
-        help="How many batches to use for evaluation",
-        default=EvalConfig.eval_iters,
-    )
-    parser.add_argument(
-        "--always-save-checkpoint",
-        action="store_true",
-        help="Whether to save a checkpoint after each evaluation",
-        default=EvalConfig.always_save_checkpoint,
-    )
-    parser.add_argument(
-        "--training-type",
-        type=str,
-        help="Pretraining or fine-tuning (just change the model output name",
-        default=EvalConfig.training_type,
-    )
-    parser.add_argument(
-        "--init-weights",
-        type=str,
-        help="How to initialize the model (random or checkpoint)",
-        default=EvalConfig.init_weights,
+    parser.add_arguments(
+        OptimizerConfig,
+        dest="optimizer_config",
     )
 
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        help="Batch size",
-        default=BatchConfig.batch_size,
-    )
-    parser.add_argument(
-        "--gradient-accumulation-steps",
-        type=int,
-        help="Number of gradient accumulation steps",
-        default=BatchConfig.gradient_accumulation_steps,
-    )
-    parser.add_argument(
-        "--num-workers",
-        type=int,
-        help="Number of workers for the dataloader",
-        default=BatchConfig.num_workers,
-    )
-    parser.add_argument(
-        "--seed-offset",
-        type=int,
-        help="Seed offset for the dataloader",
-        default=BatchConfig.seed_offset,
-    )
-    parser.add_argument(
-        "--dataset-class",
-        type=str,
-        help="Type of dataset to use (iterator or batches)",
-        default=BatchConfig.dataset_class,
+    parser.add_arguments(
+        SystemConfig,
+        dest="system_config",
     )
 
-    parser.add_argument(
-        "--learning-rate",
-        type=float,
-        help="Learning rate",
-        default=OptimizerConfig.learning_rate,
-    )
-    parser.add_argument(
-        "--max-iters",
-        type=int,
-        help="Max number of iterations for training",
-        default=OptimizerConfig.max_iters,
-    )
-    parser.add_argument(
-        "--weight-decay",
-        type=float,
-        help="Weight decay",
-        default=OptimizerConfig.weight_decay,
-    )
-    parser.add_argument(
-        "--beta1",
-        type=float,
-        help="Beta1 for AdamW",
-        default=OptimizerConfig.beta1,
-    )
-    parser.add_argument(
-        "--beta2",
-        type=float,
-        help="Beta2 for AdamW",
-        default=OptimizerConfig.beta2,
-    )
-    parser.add_argument(
-        "--grad-clip",
-        type=float,
-        help="Gradient clip value",
-        default=OptimizerConfig.grad_clip,
-    )
-    parser.add_argument(
-        "--decay-lr",
-        type=bool,
-        help="Whether to decay the learning rate",
-        default=OptimizerConfig.decay_lr,
-    )
-    parser.add_argument(
-        "--warmup-iters",
-        type=int,
-        help="Number of warmup iterations",
-        default=OptimizerConfig.warmup_iters,
+    parser.add_arguments(
+        WandbLog,
+        dest="wandb_log",
     )
 
-    parser.add_argument(
-        "--device",
-        type=str,
-        help="Device to use for training (cpu, cuda, mps)",
-        default=SystemConfig.device,
-    )
-    parser.add_argument(
-        "--dtype",
-        type=str,
-        help="Data type to use for training (float32, bfloat16, float16)",
-        default=SystemConfig.dtype,
-    )
-
-    parser.add_argument(
-        "--compile",
-        action="store_true",
-        help="Enable pytorch model compiling (requires torch>=2.0",
-        default=SystemConfig.compile,
-    )
-
-    parser.add_argument(
-        "--wandb-log",
-        action="store_true",
-        help="Enable logging to wandb",
-        default=WandbLog.wandb_log,
-    )
-
-    parser.add_argument(
-        "--dim",
-        type=int,
-        help="Dimension of the model embeddings",
-        default=ModelArgs.dim,
-    )
-    parser.add_argument(
-        "--n-layers",
-        type=int,
-        help="Number of layers in the model (transformer blocks + FF)",
-        default=ModelArgs.n_layers,
-    )
-    parser.add_argument(
-        "--n-heads",
-        type=int,
-        help="Number of attention heads in the model",
-        default=ModelArgs.n_heads,
-    )
-    parser.add_argument(
-        "--vocab-size",
-        type=int,
-        help="Vocabulary size",
-        default=ModelArgs.vocab_size,
-    )
-    parser.add_argument(
-        "--hidden-dim",
-        type=int,
-        help="Dimension of hidden layer in the model",
-        default=ModelArgs.hidden_dim,
-    )
-    parser.add_argument(
-        "--hidden-dim-multiplier",
-        type=int,
-        help="Multiplier for the hidden layer dimension",
-        default=ModelArgs.hidden_dim_multiplier,
-    )
-    parser.add_argument(
-        "--multiple-of",
-        type=int,
-        help="MLP hidden layer size will be multiple of this value",
-        default=ModelArgs.multiple_of,
-    )
-    parser.add_argument(
-        "--norm-eps",
-        type=float,
-        help="Epsilon for layer normalization",
-        default=ModelArgs.norm_eps,
-    )
-    parser.add_argument(
-        "--max-context-length",
-        type=int,
-        help="Max context length",
-        default=ModelArgs.max_context_length,
-    )
-    parser.add_argument(
-        "--dropout",
-        type=float,
-        help="Dropout probability",
-        default=ModelArgs.dropout,
+    parser.add_arguments(
+        ModelArgs,
+        dest="model_config",
     )
 
     args = parser.parse_args()
 
     # instantiate all parameters
 
-    if args.training_type == "finetuning":
-        args.init_weights = "checkpoint"
+    if args.eval_config.training_type == "finetuning":
+        args.eval_config.init_weights = "checkpoint"
         save_name = "ckpt_ft"
         log.info("Finetuning mode, initializing model from checkpoint")
     else:
         save_name = "ckpt"
 
-    eval_config = EvalConfig(
-        out_dir=args.out_dir,
-        eval_interval=args.eval_interval,
-        log_interval=args.log_interval,
-        eval_iters=args.eval_iters,
-        always_save_checkpoint=args.always_save_checkpoint,
-        training_type=args.training_type,
-        init_weights=args.init_weights,
-    )
-    model_config = ModelArgs(
-        dim=args.dim,
-        n_layers=args.n_layers,
-        n_heads=args.n_heads,
-        vocab_size=args.vocab_size,
-        hidden_dim=args.hidden_dim,
-        hidden_dim_multiplier=args.hidden_dim_multiplier,
-        multiple_of=args.multiple_of,
-        norm_eps=args.norm_eps,
-        max_context_length=args.max_context_length,
-        dropout=args.dropout,
-    )
-    batch_config = BatchConfig(
-        batch_size=args.batch_size,
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        num_workers=args.num_workers,
-        seed_offset=args.seed_offset,
-        dataset_class=args.dataset_class,
-    )
-    optimizer_config = OptimizerConfig(
-        learning_rate=args.learning_rate,
-        max_iters=args.max_iters,
-        weight_decay=args.weight_decay,
-        beta1=args.beta1,
-        beta2=args.beta2,
-        grad_clip=args.grad_clip,
-        decay_lr=args.decay_lr,
-        warmup_iters=args.warmup_iters,
-    )
-    system_config = SystemConfig(
-        device=args.device,
-        dtype=args.dtype,
-        compile=args.compile,
-    )
-    wandb_log = WandbLog(
-        wandb_log=args.wandb_log,
-    )
     ptdtype = {
         "float32": torch.float32,
         "bfloat16": torch.bfloat16,
         "float16": torch.float16,
-    }[system_config.dtype]
+    }[args.system_config.dtype]
     ctx = (
         nullcontext()
-        if system_config.device != "cuda"
-        else torch.amp.autocast(device_type=system_config.device, dtype=ptdtype)
+        if args.system_config.device != "cuda"
+        else torch.amp.autocast(device_type=args.system_config.device, dtype=ptdtype)
     )
 
     # -----------------------------------------------------------------------------
     # Weight & Biases logging
     # logging
-    if wandb_log.wandb_log:
+    if args.wandb_log.wandb_log:
         wandb.init(
-            project=wandb_log.wandb_project,
-            name=wandb_log.wandb_run_name,
+            project=args.wandb_log.wandb_project,
+            name=args.wandb_log.wandb_run_name,
             config=config,
         )
 
     # -----------------------------------------------------------------------------
     # fixing some hyperparams to sensible defaults
-    lr_decay_iters = optimizer_config.max_iters  # should be ~= max_iters per Chinchilla
+    lr_decay_iters = (
+        args.optimizer_config.max_iters
+    )  # should be ~= max_iters per Chinchilla
     min_lr = 0.0  # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
 
     # -----------------------------------------------------------------------------
     tokens_per_iter = (
-        batch_config.gradient_accumulation_steps
-        * batch_config.batch_size  # noqa
-        * model_config.max_context_length  # noqa
+        args.batch_config.gradient_accumulation_steps
+        * args.batch_config.batch_size  # noqa
+        * args.model_config.max_context_length  # noqa
     )
     log.info(f"tokens per iteration will be: {tokens_per_iter:,}")
     log.info(
         f"""breaks down as:
-            > {batch_config.gradient_accumulation_steps} grad accum steps  *
-            >  {batch_config.batch_size} batch size *
-            >  {model_config.max_context_length} context length"""
+            > {args.batch_config.gradient_accumulation_steps} grad accum steps  *
+            >  {args.batch_config.batch_size} batch size *
+            >  {args.model_config.max_context_length} context length"""
     )
-    eval_config.out_dir.mkdir(exist_ok=True)
+    args.eval_config.out_dir.mkdir(exist_ok=True)
     # -----------------------------------------------------------------------------
-    torch.manual_seed(1337 + batch_config.seed_offset)
+    torch.manual_seed(1337 + args.batch_config.seed_offset)
 
     # -----------------------------------------------------------------------------
-    if eval_config.init_weights == "random":
+    if args.eval_config.init_weights == "random":
         iter_num = 0
         best_val_loss = 1e9
         # model init
         log.info("Initializing a new model from scratch")
-        model = Transformer(model_config)
-    elif eval_config.init_weights == "checkpoint":
-        log.info(f"Resuming training from {eval_config.out_dir}")
+        model = Transformer(args.model_config)
+    elif args.eval_config.init_weights == "checkpoint":
+        log.info(f"Resuming training from {args.eval_config.out_dir}")
         # resume training from a checkpoint.
-        ckpt_path = Path(eval_config.out_dir, "ckpt.pt")
-        checkpoint = torch.load(ckpt_path, map_location=system_config.device)
+        ckpt_path = Path(args.eval_config.out_dir, "ckpt.pt")
+        checkpoint = torch.load(ckpt_path, map_location=args.system_config.device)
         checkpoint_model_args = checkpoint["model_args"]
         # force these config attributes to be equal otherwise we can't even resume
         #  training the rest of the attributes (e.g. dropout) can stay as desired from
@@ -474,9 +247,9 @@ if __name__ == "__main__":
             "hidden_dim_multiplier",
             "max_context_length",
         ]:
-            setattr(model_config, k, getattr(checkpoint_model_args, k))
+            setattr(args.model_config, k, getattr(checkpoint_model_args, k))
         # create the model
-        model = Transformer(model_config)
+        model = Transformer(args.model_config)
         state_dict = checkpoint["model"]
         # fix the keys of the state dictionary :(
         # honestly no idea how checkpoints sometimes get this prefix, have to debug more
@@ -485,62 +258,62 @@ if __name__ == "__main__":
             if k.startswith(unwanted_prefix):
                 state_dict[k[len(unwanted_prefix) :]] = state_dict.pop(k)
         model.load_state_dict(state_dict)
-        if eval_config.training_type == "finetuning":
+        if args.eval_config.training_type == "finetuning":
             iter_num = 0
         else:
             iter_num = checkpoint["iter_num"]
         best_val_loss = checkpoint["best_val_loss"]
 
-    model.to(system_config.device)
+    model.to(args.system_config.device)
 
     # compile the model
-    if system_config.compile:
+    if args.system_config.compile:
         log.info("compiling the model... (takes a ~minute)")
         unoptimized_model = model
         model = torch.compile(model)  # requires PyTorch 2.0
 
     optimizer = model.configure_optimizer(
-        optimizer_config.weight_decay,
-        optimizer_config.learning_rate,
-        (optimizer_config.beta1, optimizer_config.beta2),
-        system_config.device,
+        args.optimizer_config.weight_decay,
+        args.optimizer_config.learning_rate,
+        (args.optimizer_config.beta1, args.optimizer_config.beta2),
+        args.system_config.device,
     )
 
     # initialize a GradScaler. If enabled=False scaler is a no-op
-    scaler = torch.cuda.amp.GradScaler(enabled=(system_config.dtype == "float16"))
+    scaler = torch.cuda.amp.GradScaler(enabled=(args.system_config.dtype == "float16"))
 
     # -----------------------------------------------------------------------------
     # Dataloader
 
-    if batch_config.dataset_class == "iterator":
+    if args.batch_config.dataset_class == "iterator":
         iter_params = {
             "pretokenized_source": Path(
-                f"climateGPT/data/tok{model_config.vocab_size}"
+                f"climateGPT/data/tok{args.model_config.vocab_size}"
             ),
-            "context_length": model_config.max_context_length,
+            "context_length": args.model_config.max_context_length,
             # "verbose": True,
         }
 
         iter_batches = partial(
             TokenIterator.iter_batches,
-            batch_size=batch_config.batch_size,
-            device=system_config.device,
-            num_workers=batch_config.num_workers,
+            batch_size=args.batch_config.batch_size,
+            device=args.system_config.device,
+            num_workers=args.batch_config.num_workers,
             **iter_params,
         )
     else:
         batch_params = {
             "pretokenized_source": Path(
-                f"climateGPT/data/fine_tuning/vocab_{model_config.vocab_size}_context_{model_config.max_context_length}"  # noqa
+                f"climateGPT/data/fine_tuning/vocab_{args.model_config.vocab_size}_context_{args.model_config.max_context_length}"  # noqa
             ),
-            "context_length": model_config.max_context_length,
+            "context_length": args.model_config.max_context_length,
         }
 
         iter_batches = partial(
             TokenBatches.iter_batches,
-            batch_size=batch_config.batch_size,
-            device=system_config.device,
-            num_workers=batch_config.num_workers,
+            batch_size=args.batch_config.batch_size,
+            device=args.system_config.device,
+            num_workers=args.batch_config.num_workers,
             **batch_params,
         )
     # training
@@ -557,23 +330,23 @@ if __name__ == "__main__":
         lr = (
             get_lr(
                 it=iter_num,
-                warmup_iters=optimizer_config.warmup_iters,
+                warmup_iters=args.optimizer_config.warmup_iters,
                 lr_decay_iters=lr_decay_iters,
                 min_lr=min_lr,
-                learning_rate=optimizer_config.learning_rate,
+                learning_rate=args.optimizer_config.learning_rate,
             )
-            if optimizer_config.decay_lr
-            else optimizer_config.learning_rate
+            if args.optimizer_config.decay_lr
+            else args.optimizer_config.learning_rate
         )
         for param_group in optimizer.param_groups:
             param_group["lr"] = lr
 
         # evaluate the loss on train/val sets and write checkpoints
-        if iter_num % eval_config.eval_interval == 0:
+        if iter_num % args.eval_config.eval_interval == 0:
             losses = estimate_loss(
                 model=model,
                 iter_batches=iter_batches,
-                eval_iters=eval_config.eval_iters,
+                eval_iters=args.eval_config.eval_iters,
             )
             log.info(
                 f"Step {iter_num}",
@@ -594,41 +367,44 @@ if __name__ == "__main__":
                 )
             except Exception as e:
                 log.info(f"logging to wandb failed: {e}")
-            if losses["val"] < best_val_loss or eval_config.always_save_checkpoint:
+            if losses["val"] < best_val_loss or args.eval_config.always_save_checkpoint:
                 best_val_loss = losses["val"]
                 if iter_num > 0:
                     checkpoint = {
                         "model": raw_model.state_dict(),
                         "optimizer": optimizer.state_dict(),
-                        "model_args": model_config,
+                        "model_args": args.model_config,
                         "iter_num": iter_num,
                         "best_val_loss": best_val_loss,
                         "config": config,
                     }
-                    log.info(f"saving checkpoint to {eval_config.out_dir}")
+                    log.info(f"saving checkpoint to {args.eval_config.out_dir}")
                     torch.save(
-                        checkpoint, os.path.join(eval_config.out_dir, f"{save_name}.pt")
+                        checkpoint,
+                        os.path.join(args.eval_config.out_dir, f"{save_name}.pt"),
                     )
                     model_export(
                         raw_model,
-                        os.path.join(eval_config.out_dir, f"{save_name}.bin"),
+                        os.path.join(args.eval_config.out_dir, f"{save_name}.bin"),
                         version=0,
                     )
 
         # forward backward update, with optional gradient accumulation
 
-        for micro_step in range(batch_config.gradient_accumulation_steps):
+        for micro_step in range(args.batch_config.gradient_accumulation_steps):
             with ctx:
                 logits = model(X, Y)
                 loss = raw_model.last_loss
-                loss = loss / batch_config.gradient_accumulation_steps  # type: ignore
+                loss = (
+                    loss / args.batch_config.gradient_accumulation_steps
+                )  # type: ignore
             X, Y = next(train_batch_iter)  # fetch the next batch asynchrounously
             scaler.scale(loss).backward()  # type: ignore
         # clip the gradient
-        if optimizer_config.grad_clip != 0.0:
+        if args.optimizer_config.grad_clip != 0.0:
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(
-                model.parameters(), optimizer_config.grad_clip
+                model.parameters(), args.optimizer_config.grad_clip
             )
         # step the optimizer and scaler if training in fp16
         scaler.step(optimizer)
@@ -640,13 +416,15 @@ if __name__ == "__main__":
         t1 = time.time()
         dt = t1 - t0
         t0 = t1
-        if iter_num % eval_config.log_interval == 0:
+        if iter_num % args.eval_config.log_interval == 0:
             lossf = (
-                loss.item() * batch_config.gradient_accumulation_steps  # type: ignore
+                loss.item()
+                * args.batch_config.gradient_accumulation_steps  # type: ignore # noqa
             )
             if local_iter_num >= 5:  # let the training loop settle a bit
                 mfu = raw_model.estimate_mfu(
-                    batch_config.batch_size * batch_config.gradient_accumulation_steps,
+                    args.batch_config.batch_size
+                    * args.batch_config.gradient_accumulation_steps,  # noqa
                     dt,
                     flops_promised=2.6e12,
                 )
@@ -664,13 +442,13 @@ if __name__ == "__main__":
         local_iter_num += 1
 
         # termination conditions
-        if iter_num > optimizer_config.max_iters:
+        if iter_num > args.optimizer_config.max_iters:
             break
 
     model.eval()
 
     # load the tokenizer
-    tokenizer_model_path = f"climateGPT/models/tok{model_config.vocab_size}.model"
+    tokenizer_model_path = f"climateGPT/models/tok{args.model_config.vocab_size}.model"
     enc = Tokenizer(tokenizer_model_path=Path(tokenizer_model_path))
 
     num_samples = 1  # number of samples to draw
@@ -685,7 +463,7 @@ if __name__ == "__main__":
 
     # encode the beginning of the prompt
     start_ids = enc.encode("Climate change is", bos=True, eos=False)
-    x = torch.tensor(start_ids, dtype=torch.long, device=system_config.device)[
+    x = torch.tensor(start_ids, dtype=torch.long, device=args.system_config.device)[
         None, ...
     ]
 
@@ -699,12 +477,8 @@ if __name__ == "__main__":
                 )
                 log.info(enc.decode(y[0].tolist()))
 
-
-# TODO: script to count the number of token for a dataset with different tokenizers
-# TODO: create sample of en wiki ~1B tokens
-# TODO: adapt prepare script for en wiki
-# TODO: create new torch dataset for climate data fine tuning
-
 # TODO: add MoE layer and training loop
+
+# TODO: create new torch dataset for climate data fine tuning
 # TODO: create instruct dataset
 # TODO: revamp code from FastGPT repo
