@@ -13,7 +13,6 @@ import torch
 from simple_parsing import ArgumentParser
 
 import wandb
-from climateGPT.export import model_export
 from climateGPT.iterate import TokenBatches, TokenIterator
 from climateGPT.model import ModelArgs, Transformer
 from climateGPT.tokenize import Tokenizer
@@ -108,6 +107,8 @@ def estimate_loss(model, iter_batches, eval_iters: int) -> Dict[str, float]:
                 loss = raw_model.last_loss
             losses[k] = loss.item()  # type: ignore
         out[split] = losses.mean()
+    out["token_load_balancing"] = model.get_token_load_balancing_state()
+
     model.train()
     return out
 
@@ -260,9 +261,10 @@ if __name__ == "__main__":
         model.load_state_dict(state_dict)
         if args.eval_config.training_type == "finetuning":
             iter_num = 0
+            best_val_loss = None
         else:
             iter_num = checkpoint["iter_num"]
-        best_val_loss = checkpoint["best_val_loss"]
+            best_val_loss = checkpoint["best_val_loss"]
 
     model.to(args.system_config.device)
 
@@ -367,6 +369,22 @@ if __name__ == "__main__":
                 )
             except Exception as e:
                 log.info(f"logging to wandb failed: {e}")
+            if args.model_config.moe.enable_moe:
+                log.info(
+                    "Load balancing",
+                    token_share=losses["token_load_balancing"],
+                )
+                try:
+                    wandb.log(
+                        {
+                            f"expert/{i}": v
+                            for i, v in losses["token_load_balancing"].items()
+                        },
+                        step=iter_num,
+                    )
+
+                except Exception as e:
+                    log.info(f"logging to wandb failed: {e}")
             if losses["val"] < best_val_loss or args.eval_config.always_save_checkpoint:
                 best_val_loss = losses["val"]
                 if iter_num > 0:
@@ -382,11 +400,6 @@ if __name__ == "__main__":
                     torch.save(
                         checkpoint,
                         os.path.join(args.eval_config.out_dir, f"{save_name}.pt"),
-                    )
-                    model_export(
-                        raw_model,
-                        os.path.join(args.eval_config.out_dir, f"{save_name}.bin"),
-                        version=0,
                     )
 
         # forward backward update, with optional gradient accumulation
@@ -477,7 +490,8 @@ if __name__ == "__main__":
                 )
                 log.info(enc.decode(y[0].tolist()))
 
-# TODO: add MoE layer and training loop
+
+# TODO: add grouped multi query attention support
 
 # TODO: create new torch dataset for climate data fine tuning
 # TODO: create instruct dataset

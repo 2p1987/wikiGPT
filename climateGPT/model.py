@@ -32,9 +32,10 @@ class MoeArgs:
         number of experts per token in the model
     """
 
+    enable_moe: bool = False
     num_experts: int = 8
-    num_experts_per_tok: int = 2
-    dropout: float = 0.0
+    num_experts_per_tok: int = 1
+    moe_dropout: float = 0.0
 
 
 @dataclass
@@ -533,6 +534,7 @@ class MoeLayer(nn.Module):
         self.experts = nn.ModuleList(experts)
         self.gate = gate
         self.args = moe_args
+        self.token_load_balancing = {i: 0 for i in range(self.args.num_experts)}
 
     def forward(self, x: torch.Tensor):
         """
@@ -564,6 +566,8 @@ class MoeLayer(nn.Module):
             results[batch_idx] += weights[batch_idx, nth_expert, None] * expert(
                 inputs_squashed[batch_idx]
             )
+            self.token_load_balancing[i] += len(batch_idx)
+
         return results.view_as(x)
 
 
@@ -595,7 +599,10 @@ class TransformerBlock(nn.Module):
     """
 
     def __init__(
-        self, layer_id: int, args: ModelArgs, activate_moe: bool = False
+        self,
+        layer_id: int,
+        args: ModelArgs,
+        enable_moe: bool = False,
     ) -> None:
         """
         Constructs all the necessary attributes for the TransformerBlock object.
@@ -612,8 +619,9 @@ class TransformerBlock(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.attn = Attention(args)
+        self.enable_moe = enable_moe
 
-        if args.moe is not None and activate_moe:
+        if self.enable_moe:
             self.feed_forward = MoeLayer(
                 experts=[
                     FeedForward(
@@ -621,7 +629,7 @@ class TransformerBlock(nn.Module):
                         hidden_dim=args.hidden_dim,
                         hidden_dim_multiplier=args.hidden_dim_multiplier,
                         multiple_of=args.multiple_of,
-                        dropout=args.moe.dropout,
+                        dropout=args.moe.moe_dropout,
                     )
                     for _ in range(args.moe.num_experts)
                 ],
@@ -641,7 +649,7 @@ class TransformerBlock(nn.Module):
 
     def forward(
         self, x: torch.Tensor, freqs_cos: torch.Tensor, freqs_sin: torch.Tensor
-    ) -> torch.Tensor:
+    ):
         """
         Passes the input through the Transformer block.
 
@@ -676,14 +684,22 @@ class Transformer(nn.Module):
         self.args = args
         self.vocab_size = args.vocab_size
         self.n_layers = args.n_layers
-        self.activate_moe = args.moe is not None
+        self.enable_moe = args.moe.enable_moe
+        if self.enable_moe:
+            self.load_balancing = {i: 0 for i in range(args.moe.num_experts)}
 
         # Define model layers
         self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
         self.dropout = nn.Dropout(args.dropout)
         self.layers = nn.ModuleList()
         for layer_id in range(args.n_layers):
-            self.layers.append(TransformerBlock(layer_id, args, self.activate_moe))
+            self.layers.append(
+                TransformerBlock(
+                    layer_id,
+                    args,
+                    self.enable_moe,
+                )
+            )
         self.norm = RMSNorm(args.dim, args.norm_eps)
         self.output = nn.Linear(args.dim, args.vocab_size, bias=False)
 
@@ -821,6 +837,20 @@ class Transformer(nn.Module):
 
         mfu = flops_achieved / flops_promised
         return mfu
+
+    def get_token_load_balancing_state(self):
+        if self.enable_moe:
+            total_token_balance = {i: 0 for i in range(self.args.moe.num_experts)}
+            for i in range(self.args.moe.num_experts):
+                for layer in self.layers:
+                    total_token_balance[i] += layer.feed_forward.token_load_balancing[i]
+            total = sum(total_token_balance.values())
+            total_token_balance = {
+                i: round(v / total * 100, 1) for i, v in total_token_balance.items()
+            }
+            return total_token_balance
+        else:
+            return None
 
     @torch.inference_mode()  # TODO: implement with k/v cache?
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
