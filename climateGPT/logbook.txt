@@ -126,3 +126,36 @@ Greenhouse agriculture has event but a strong to the risks of Maliria, these
 articlements, GDS iron tropical systems can produce zerofally affect specific snow the
 large environmental impact to climate change, Chemosons will have measuring make broasge
 of an Nature industry Plites materially. The Rietim to
+
+---
+
+python -m climateGPT.train \
+--dim 768 --n-layers 7 --n-heads 16 --hidden-dim 768 --max-context-length 512 \
+--vocab-size 2000 --max-iters 7000 --num-workers 4 --batch-size 16 --dropout 0.2 \
+--dtype float16 --device mps --wandb-log
+
+python -m climateGPT.train \
+--init-weights checkpoint --dim 2048 --n-layers 6 --n-heads 16 --hidden-dim 2048 --max-context-length 1024 \
+--vocab-size 8000 --max-iters 65000 --num-workers 6 --batch-size 128 --dropout 0.4 \
+--dtype bfloat16 --device cuda --compile --always-save-checkpoint
+
+# parameters: ~
+timing (for 1000 with eval): ~
+mfu: ~
+
+initial_loss:
+train_loss:
+val_loss:
+
+sample:
+
+
+
+python -m climateGPT.train --dim 512 --n-layers 5 --n-heads 16 \
+ --hidden-dim 512 --max-context-length 512 --vocab-size 2000 \
+ --max-iters 30000 --batch-size 16 --dropout 0.1 \
+ --dataset-class batches --training-type finetuning --init-weights checkpoint \
+ --dtype float16 --device mps --num-workers 4 --wandb-log
+
+
+ python -m climateGPT.train --dim 1024 --n_layers 10 --n_heads 16 --hidden_dim 1536 --max_context_length 512 --vocab_size 32000 --enable_moe --num_experts 12 --num_experts_per_tok 1 --max_iters 200000 --batch_size 32 --dropout 0.2 --moe_dropout 0.2 --dtype float16 --device cuda --num_workers 4 --wandb_log
