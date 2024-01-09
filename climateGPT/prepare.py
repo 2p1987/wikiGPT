@@ -33,7 +33,7 @@ def load_wiki_sample():
         dataset = load_dataset(
             "wikimedia/wikipedia",
             "20231101.en",
-            split="train[:20%]",
+            split="train[:50%]",
             num_proc=8,
         )
         df = dataset.to_pandas()
@@ -186,7 +186,7 @@ if __name__ == "__main__":
         help="Creates the shuffled shards from data in the data/original_shards folder",
     )
     parser_create_shuffled_shards.add_argument(
-        "--n-shards", type=int, default=300, help="Number of shards to be created."
+        "--n-shards", type=int, default=750, help="Number of shards to be created."
     )
     parser_create_shuffled_shards.add_argument(
         "--seed", type=int, default=678, help="Random seed for shuffling"

@@ -59,7 +59,7 @@ def train_vocab(vocab_size, model_dir: str, data_dir: Union[str, Path]):
         vocab_size=vocab_size,
         self_test_sample_size=0,
         input_format="text",
-        character_coverage=0.99,
+        character_coverage=1.0,
         num_threads=os.cpu_count(),
         split_digits=True,
         allow_whitespace_only_pieces=True,
@@ -67,6 +67,8 @@ def train_vocab(vocab_size, model_dir: str, data_dir: Union[str, Path]):
         unk_surface=r" \342\201\207 ",
         normalization_rule_name="identity",
         max_sentence_length=16384,
+        input_sentence_size=20000000,
+        shuffle_input_sentence=True,
     )
 
     # 3) optional cleanup, ask the user if they'd like to delete tiny.txt
