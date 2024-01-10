@@ -51,6 +51,7 @@ class BatchConfig:
 class OptimizerConfig:
     # adamw optimizer
     learning_rate: float = 5e-4  # max learning rate
+    min_learning_rate: float = 0.0  # min learning rate
     max_iters: int = 100000  # total number of training iterations
     weight_decay: float = 1e-1
     beta1: float = 0.9
@@ -203,7 +204,9 @@ if __name__ == "__main__":
     lr_decay_iters = (
         args.optimizer_config.max_iters
     )  # should be ~= max_iters per Chinchilla
-    min_lr = 0.0  # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
+    min_lr = (
+        args.optimizer_config.min_learning_rate
+    )  # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
 
     # -----------------------------------------------------------------------------
     tokens_per_iter = (
