@@ -33,6 +33,9 @@ class EvalConfig:
     )
     training_type: str = "pretraining"  # or "finetuning
     init_weights: str = "random"  # or "checkpoint"
+    init_optimizer: bool = (
+        True  # if False, initialize the optimizer from the checkpoint
+    )
 
 
 # data
@@ -283,6 +286,10 @@ if __name__ == "__main__":
         (args.optimizer_config.beta1, args.optimizer_config.beta2),
         args.system_config.device,
     )
+    if args.eval_config.init_optimizer and checkpoint is not None:
+        optimizer.load_state_dict(checkpoint["optimizer"])
+
+    checkpoint = None  # free up memory
 
     # initialize a GradScaler. If enabled=False scaler is a no-op
     scaler = torch.cuda.amp.GradScaler(enabled=(args.system_config.dtype == "float16"))
