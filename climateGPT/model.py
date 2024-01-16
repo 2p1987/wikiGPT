@@ -52,7 +52,9 @@ class ModelArgs:
     n_layers : int
         number of layers in the model (transformer blocks + FF)
     n_heads : int
-        number of attention heads
+        number of attention heads for queries
+    n_kv_heads: int
+        number of attention heads for keys and values (must be a divisor of n_heads)
     vocab_size : int
         size of the vocabulary
     hidden_dim : int
@@ -71,9 +73,11 @@ class ModelArgs:
         arguments for the sparse mixture of experts model
     """
 
+    moe: MoeArgs
     dim: int = 4096
     n_layers: int = 1
     n_heads: int = 32
+    n_kv_heads: Optional[int] = None
     vocab_size: int = 32000
     hidden_dim: int = 4096
     hidden_dim_multiplier: int = 2
@@ -81,8 +85,6 @@ class ModelArgs:
     norm_eps: float = 1e-5
     max_context_length: int = 2048
     dropout: float = 0.0
-
-    moe: Optional[MoeArgs] = None
 
 
 # Rotary Positional Encoding (RoPE) utils
@@ -275,6 +277,22 @@ class RMSNorm(nn.Module):
 
 
 # Attention module
+
+
+def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """
+    Repeats the tensor values n times to match dimension of the projected queries.
+    """
+    batch_size, context_length, n_kv_heads, head_dim = x.shape
+    if n_rep == 1:
+        return x
+    return (
+        x[:, :, :, None, :]
+        .expand(batch_size, context_length, n_kv_heads, n_rep, head_dim)
+        .reshape(batch_size, context_length, n_kv_heads * n_rep, head_dim)
+    )
+
+
 class Attention(nn.Module):
     """
     A class used to implement the Attention mechanism in a transformer model.
@@ -284,7 +302,9 @@ class Attention(nn.Module):
     Attributes
     ----------
     n_heads : int
-        number of attention heads
+        number of attention heads for queries
+    n_kv_heads : int
+        number of attention heads for keys and values (must be a divisor of n_heads)
     dim : int
         embedding dimension of the model
     head_dim : int
@@ -324,11 +344,16 @@ class Attention(nn.Module):
         """
         super().__init__()
         self.n_heads = args.n_heads
+        self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
+        assert (
+            args.n_heads % self.n_kv_heads == 0
+        ), "n_heads must be divisible by n_kv_heads"
+        self.n_rep = self.n_heads // self.n_kv_heads
         self.dim = args.dim
         self.head_dim = self.dim // args.n_heads
         self.wq = nn.Linear(self.dim, self.n_heads * self.head_dim, bias=False)
-        self.wk = nn.Linear(self.dim, self.n_heads * self.head_dim, bias=False)
-        self.wv = nn.Linear(self.dim, self.n_heads * self.head_dim, bias=False)
+        self.wk = nn.Linear(self.dim, self.n_kv_heads * self.head_dim, bias=False)
+        self.wv = nn.Linear(self.dim, self.n_kv_heads * self.head_dim, bias=False)
         self.wo = nn.Linear(self.n_heads * self.head_dim, self.dim, bias=False)
         self.dropout = args.dropout
         self.attn_dropout = nn.Dropout(self.dropout)
@@ -371,12 +396,18 @@ class Attention(nn.Module):
         # x{q, k, v}: (batch_size, context_length, dim) @ (dim, dim)
         # --> (batch_size, context_length, dim)
         xq = xq.view(batch_size, context_length, self.n_heads, self.head_dim)
-        xk = xk.view(batch_size, context_length, self.n_heads, self.head_dim)
-        xv = xv.view(batch_size, context_length, self.n_heads, self.head_dim)
-        # x{q, k, v}: (batch_size, context_length, n_heads, head_dim)
+        xk = xk.view(batch_size, context_length, self.n_kv_heads, self.head_dim)
+        xv = xv.view(batch_size, context_length, self.n_kv_heads, self.head_dim)
+        # xq: (batch_size, context_length, n_heads, head_dim)
+        # x{k, v}: (batch_size, context_length, n_kv_heads, head_dim)
 
         # RoPE relative positional embeddings
         xq, xk = apply_rotary_emb(xq, xk, freqs_cos, freqs_sin)
+
+        # grouped multiquery attention: expand out keys and values
+        # (batch_size, context_length, n_heads, head_dim)
+        xk = repeat_kv(xk, self.n_rep)
+        xv = repeat_kv(xv, self.n_rep)
 
         # make heads into a batch dimension
         xq = xq.transpose(1, 2)
