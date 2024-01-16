@@ -33,9 +33,7 @@ class EvalConfig:
     )
     training_type: str = "pretraining"  # or "finetuning
     init_weights: str = "random"  # or "checkpoint"
-    init_optimizer: bool = (
-        True  # if False, initialize the optimizer from the checkpoint
-    )
+    optimizer_state: str = "scratch"  # or "checkpoint"
 
 
 # data
@@ -235,6 +233,7 @@ if __name__ == "__main__":
         # model init
         log.info("Initializing a new model from scratch")
         model = Transformer(args.model_config)
+        checkpoint = None
     elif args.eval_config.init_weights == "checkpoint":
         log.info(f"Resuming training from {args.eval_config.out_dir}")
         # resume training from a checkpoint.
@@ -286,7 +285,7 @@ if __name__ == "__main__":
         (args.optimizer_config.beta1, args.optimizer_config.beta2),
         args.system_config.device,
     )
-    if args.eval_config.init_optimizer and checkpoint is not None:
+    if args.eval_config.optimizer_state == "checkpoint" and checkpoint is not None:
         optimizer.load_state_dict(checkpoint["optimizer"])
 
     checkpoint = None  # free up memory
@@ -501,8 +500,8 @@ if __name__ == "__main__":
                 log.info(enc.decode(y[0].tolist()))
 
 
-# TODO: add grouped multi query attention support
-
 # TODO: create new torch dataset for climate data fine tuning
 # TODO: create instruct dataset
+# TODO: implement DPO algorithm for instruction tuning
+# TODO: test performance of distilled model
 # TODO: revamp code from FastGPT repo
