@@ -13,7 +13,7 @@ from climateGPT.tokenize import Tokenizer
 
 log = structlog.get_logger()
 
-vocab_size = 2000
+vocab_size = 32000
 context_length = 512
 save_path = Path(
     f"climateGPT/data/fine_tuning/vocab_{vocab_size}_context_{context_length}"
