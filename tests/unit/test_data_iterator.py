@@ -1,12 +1,8 @@
-# TODO: test repartition between workers
-# TODO: test encoding/decoding of batches
-# TODO: test number of batches
-
 from pathlib import Path
 
 import torch
 
-from climateGPT.iterate import TokenIterator
+from wikiGPT.iterate import TokenIterator
 
 
 class TestTokenIterator:
@@ -22,5 +18,5 @@ class TestTokenIterator:
         )
 
         x, y = next(iter_batches)
-        assert (x == torch.tensor([[259, 13, 29934, 5921, 2, 1]])).all()
-        assert (y == torch.tensor([[13, 29934, 5921, 2, 1, 450]])).all()
+        assert (x == torch.tensor([[2582, 515, 1422, 3736, 1103, 3145]])).all()
+        assert (y == torch.tensor([515, 1422, 3736, 1103, 3145, 373])).all()

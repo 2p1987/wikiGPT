@@ -13,9 +13,9 @@ import torch
 from simple_parsing import ArgumentParser
 
 import wandb
-from climateGPT.iterate import TokenBatches, TokenIterator
-from climateGPT.model import ModelArgs, Transformer
-from climateGPT.tokenize import Tokenizer
+from wikiGPT.iterate import TokenIterator
+from wikiGPT.model import ModelArgs, Transformer
+from wikiGPT.tokenize import Tokenizer
 
 log = structlog.get_logger()
 
@@ -31,7 +31,6 @@ class EvalConfig:
     always_save_checkpoint: bool = (
         False  # if True, always save a checkpoint after each eval
     )
-    training_type: str = "pretraining"  # or "finetuning
     init_weights: str = "random"  # or "checkpoint"
     optimizer_state: str = "scratch"  # or "checkpoint"
 
@@ -45,7 +44,6 @@ class BatchConfig:
     gradient_accumulation_steps: int = 1  # used to simulate larger batch sizes
     num_workers: int = 0
     seed_offset: int = 0
-    dataset_class: str = "iterator"  # or "batches"
 
 
 @dataclass
@@ -75,7 +73,7 @@ class SystemConfig:
 @dataclass
 class WandbLog:
     wandb_log: bool = False
-    wandb_project: str = "climateGPT"
+    wandb_project: str = "wikiGPT"
     wandb_run_name: str = "run" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 
 
@@ -109,7 +107,6 @@ def estimate_loss(model, iter_batches, eval_iters: int) -> Dict[str, float]:
                 loss = raw_model.last_loss
             losses[k] = loss.item()  # type: ignore
         out[split] = losses.mean()
-    out["token_load_balancing"] = model.get_token_load_balancing_state()
 
     model.train()
     return out
@@ -138,7 +135,7 @@ def get_lr(
 if __name__ == "__main__":
     # parse all arguments
     parser = ArgumentParser(
-        description="Train a Transformer model on climate data",
+        description="Train a Transformer model",
     )
     parser.add_arguments(
         EvalConfig,
@@ -172,12 +169,7 @@ if __name__ == "__main__":
 
     # instantiate all parameters
 
-    if args.eval_config.training_type == "finetuning":
-        args.eval_config.init_weights = "checkpoint"
-        save_name = "ckpt_ft"
-        log.info("Finetuning mode, initializing model from checkpoint")
-    else:
-        save_name = "ckpt"
+    save_name = "ckpt"
 
     ptdtype = {
         "float32": torch.float32,
@@ -264,12 +256,8 @@ if __name__ == "__main__":
             if k.startswith(unwanted_prefix):
                 state_dict[k[len(unwanted_prefix) :]] = state_dict.pop(k)
         model.load_state_dict(state_dict)
-        if args.eval_config.training_type == "finetuning":
-            iter_num = 0
-            best_val_loss = None
-        else:
-            iter_num = checkpoint["iter_num"]
-            best_val_loss = checkpoint["best_val_loss"]
+        iter_num = checkpoint["iter_num"]
+        best_val_loss = checkpoint["best_val_loss"]
 
     model.to(args.system_config.device)
 
@@ -296,37 +284,20 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------------------
     # Dataloader
 
-    if args.batch_config.dataset_class == "iterator":
-        iter_params = {
-            "pretokenized_source": Path(
-                f"climateGPT/data/tok{args.model_config.vocab_size}"
-            ),
-            "context_length": args.model_config.max_context_length,
-            # "verbose": True,
-        }
+    iter_params = {
+        "pretokenized_source": Path(f"wikiGPT/data/tok{args.model_config.vocab_size}"),
+        "context_length": args.model_config.max_context_length,
+        # "verbose": True,
+    }
 
-        iter_batches = partial(
-            TokenIterator.iter_batches,
-            batch_size=args.batch_config.batch_size,
-            device=args.system_config.device,
-            num_workers=args.batch_config.num_workers,
-            **iter_params,
-        )
-    else:
-        batch_params = {
-            "pretokenized_source": Path(
-                f"climateGPT/data/fine_tuning/vocab_{args.model_config.vocab_size}_context_{args.model_config.max_context_length}"  # noqa
-            ),
-            "context_length": args.model_config.max_context_length,
-        }
+    iter_batches = partial(
+        TokenIterator.iter_batches,
+        batch_size=args.batch_config.batch_size,
+        device=args.system_config.device,
+        num_workers=args.batch_config.num_workers,
+        **iter_params,
+    )
 
-        iter_batches = partial(
-            TokenBatches.iter_batches,
-            batch_size=args.batch_config.batch_size,
-            device=args.system_config.device,
-            num_workers=args.batch_config.num_workers,
-            **batch_params,
-        )
     # training
     train_batch_iter = iter_batches(split="train")
     X, Y = next(train_batch_iter)  # fetch the very first batch
@@ -378,22 +349,7 @@ if __name__ == "__main__":
                 )
             except Exception as e:
                 log.info(f"logging to wandb failed: {e}")
-            if args.model_config.moe.enable_moe:
-                log.info(
-                    "Load balancing",
-                    token_share=losses["token_load_balancing"],
-                )
-                try:
-                    wandb.log(
-                        {
-                            f"expert/{i}": v
-                            for i, v in losses["token_load_balancing"].items()
-                        },
-                        step=iter_num,
-                    )
 
-                except Exception as e:
-                    log.info(f"logging to wandb failed: {e}")
             if losses["val"] < best_val_loss or args.eval_config.always_save_checkpoint:
                 best_val_loss = losses["val"]
                 if iter_num > 0:
@@ -470,7 +426,7 @@ if __name__ == "__main__":
     model.eval()
 
     # load the tokenizer
-    tokenizer_model_path = f"climateGPT/models/tok{args.model_config.vocab_size}.model"
+    tokenizer_model_path = f"wikiGPT/tokenizers/tok{args.model_config.vocab_size}.model"
     enc = Tokenizer(tokenizer_model_path=Path(tokenizer_model_path))
 
     num_samples = 1  # number of samples to draw
@@ -484,7 +440,7 @@ if __name__ == "__main__":
     seed = 1337
 
     # encode the beginning of the prompt
-    start_ids = enc.encode("Climate change is", bos=True, eos=False)
+    start_ids = enc.encode("", bos=True, eos=False)
     x = torch.tensor(start_ids, dtype=torch.long, device=args.system_config.device)[
         None, ...
     ]
@@ -500,7 +456,6 @@ if __name__ == "__main__":
                 log.info(enc.decode(y[0].tolist()))
 
 
-# TODO: create new torch dataset for climate data fine tuning
 # TODO: create instruct dataset
 # TODO: implement DPO algorithm for instruction tuning
 # TODO: test performance of distilled model

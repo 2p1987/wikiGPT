@@ -5,7 +5,7 @@
 import inspect
 import math
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import structlog
 import torch
@@ -15,27 +15,6 @@ from torch.nn import functional as F
 log = structlog.get_logger()
 
 # model params
-
-
-@dataclass
-class MoeArgs:
-    """
-    A class used to store arguments for a sparse mixture of experts model.
-
-    ...
-
-    Attributes
-    ----------
-    num_experts : int
-        number of experts in the model
-    num_experts_per_tok : int
-        number of experts per token in the model
-    """
-
-    enable_moe: bool = False
-    num_experts: int = 8
-    num_experts_per_tok: int = 1
-    moe_dropout: float = 0.0
 
 
 @dataclass
@@ -69,11 +48,8 @@ class ModelArgs:
         maximum context length for the model
     dropout : float
         dropout rate for the model
-    moe : Optional[MoeArgs]
-        arguments for the sparse mixture of experts model
     """
 
-    moe: MoeArgs
     dim: int = 4096
     n_layers: int = 1
     n_heads: int = 32
@@ -527,81 +503,6 @@ class FeedForward(nn.Module):
         return self.dropout(self.w2(F.silu(self.w1(x)) * self.w3(x)))
 
 
-class MoeLayer(nn.Module):
-    """
-    A class used to implement a sparse mixture of experts layer in a transformer model.
-
-    ...
-
-    Attributes
-    ----------
-    experts : nn.ModuleList
-        list of experts in the model
-    gate : nn.Module
-        gating mechanism for the model (simple linear layer)
-    args : MoeArgs
-
-    Methods
-    -------
-    forward(inputs: torch.Tensor) -> torch.Tensor:
-        Passes the input through the sparse mixture of experts layer.
-    """
-
-    def __init__(self, experts: List[FeedForward], gate: nn.Module, moe_args: MoeArgs):
-        """
-        Construct all the necessary attributes for the MoeLayer object.
-
-        Parameters
-        ----------
-            experts : List[nn.Module]
-                list of experts in the model
-            gate : nn.Module
-                gating mechanism for the model (simple linear layer)
-            moe_args : MoeArgs
-                arguments for the sparse mixture of experts model
-        """
-        super().__init__()
-        assert len(experts) > 0
-        self.experts = nn.ModuleList(experts)
-        self.gate = gate
-        self.args = moe_args
-        self.token_load_balancing = {i: 0 for i in range(self.args.num_experts)}
-
-    def forward(self, x: torch.Tensor):
-        """
-        Passes the input through the sparse mixture of experts layer.
-
-        Parameters
-        ----------
-            x : torch.Tensor
-                input tensor
-
-        Returns
-        -------
-            torch.Tensor
-                output tensor after passing through the sparse mixture of experts layer
-        """
-        inputs_squashed = x.view(-1, x.shape[-1])
-        gate_logits = self.gate(inputs_squashed)
-        weights, selected_experts = torch.topk(
-            gate_logits, self.args.num_experts_per_tok
-        )
-        weights = nn.functional.softmax(
-            weights,
-            dim=1,
-            dtype=torch.float,
-        ).type_as(x)
-        results = torch.zeros_like(inputs_squashed)
-        for i, expert in enumerate(self.experts):  # this loop is the bottleneck
-            batch_idx, nth_expert = torch.where(selected_experts == i)
-            results[batch_idx] += weights[batch_idx, nth_expert, None] * expert(
-                inputs_squashed[batch_idx]
-            )
-            self.token_load_balancing[i] += len(batch_idx)
-
-        return results.view_as(x)
-
-
 # Transformer block
 class TransformerBlock(nn.Module):
     """
@@ -633,7 +534,6 @@ class TransformerBlock(nn.Module):
         self,
         layer_id: int,
         args: ModelArgs,
-        enable_moe: bool = False,
     ) -> None:
         """
         Constructs all the necessary attributes for the TransformerBlock object.
@@ -650,31 +550,13 @@ class TransformerBlock(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.attn = Attention(args)
-        self.enable_moe = enable_moe
-
-        if self.enable_moe:
-            self.feed_forward = MoeLayer(
-                experts=[
-                    FeedForward(
-                        dim=args.dim,
-                        hidden_dim=args.hidden_dim,
-                        hidden_dim_multiplier=args.hidden_dim_multiplier,
-                        multiple_of=args.multiple_of,
-                        dropout=args.moe.moe_dropout,
-                    )
-                    for _ in range(args.moe.num_experts)
-                ],
-                gate=nn.Linear(args.dim, args.moe.num_experts, bias=False),
-                moe_args=args.moe,
-            )
-        else:
-            self.feed_forward = FeedForward(
-                dim=args.dim,
-                hidden_dim=args.hidden_dim,
-                hidden_dim_multiplier=args.hidden_dim_multiplier,
-                multiple_of=args.multiple_of,
-                dropout=args.dropout,
-            )
+        self.feed_forward = FeedForward(
+            dim=args.dim,
+            hidden_dim=args.hidden_dim,
+            hidden_dim_multiplier=args.hidden_dim_multiplier,
+            multiple_of=args.multiple_of,
+            dropout=args.dropout,
+        )
         self.attn_norm = RMSNorm(args.dim, args.norm_eps)
         self.ff_norm = RMSNorm(args.dim, args.norm_eps)
 
@@ -715,9 +597,6 @@ class Transformer(nn.Module):
         self.args = args
         self.vocab_size = args.vocab_size
         self.n_layers = args.n_layers
-        self.enable_moe = args.moe.enable_moe
-        if self.enable_moe:
-            self.load_balancing = {i: 0 for i in range(args.moe.num_experts)}
 
         # Define model layers
         self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
@@ -728,7 +607,6 @@ class Transformer(nn.Module):
                 TransformerBlock(
                     layer_id,
                     args,
-                    self.enable_moe,
                 )
             )
         self.norm = RMSNorm(args.dim, args.norm_eps)
@@ -868,20 +746,6 @@ class Transformer(nn.Module):
 
         mfu = flops_achieved / flops_promised
         return mfu
-
-    def get_token_load_balancing_state(self):
-        if self.enable_moe:
-            total_token_balance = {i: 0 for i in range(self.args.moe.num_experts)}
-            for i in range(self.args.moe.num_experts):
-                for layer in self.layers:
-                    total_token_balance[i] += layer.feed_forward.token_load_balancing[i]
-            total = sum(total_token_balance.values())
-            total_token_balance = {
-                i: round(v / total * 100, 1) for i, v in total_token_balance.items()
-            }
-            return total_token_balance
-        else:
-            return None
 
     @torch.inference_mode()  # TODO: implement with k/v cache?
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):

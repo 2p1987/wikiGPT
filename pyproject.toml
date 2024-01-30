@@ -1,16 +1,15 @@
 [tool.poetry]
-name = "climateGPT"
+name = "wikiGPT"
 version = "0.1.0"
-description = "A GPT architecture with utils to download and train on climate data from wikipedia."
+description = "A GPT architecture with utils to download and train on wikipedia."
 authors = ["Pierre Pessarossi <pierre.pessarossi@gmail.com>"]
-repository = "https://github.com/2p1987/climateGPT"
+repository = "https://github.com/2p1987/wikiGPT"
 packages = [
-    {include = "climateGPT"},
+    {include = "wikiGPT"},
 ]
 
 [tool.poetry.dependencies]
 python = ">=3.9.0, <3.12"
-# numpy = "*"
 torch = ">=2.0.0"
 sentencepiece = ">=0.1.99"
 jupyterlab = "*"

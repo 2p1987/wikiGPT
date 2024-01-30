@@ -14,16 +14,16 @@ import structlog
 from datasets import load_dataset
 from tqdm import tqdm
 
-from climateGPT.tokenize import Tokenizer
+from wikiGPT.tokenize import Tokenizer
 
 log = structlog.get_logger()
 
-DATA_CACHE_DIR = Path("climateGPT/data/")
+DATA_CACHE_DIR = Path("wikiGPT/data/")
 
 
 def load_wiki_sample():
     log.info("Attempting to load wiki sample from cache")
-    cache_path = Path("climateGPT/data/wiki_cache/wiki_sample.parquet")
+    cache_path = Path("wikiGPT/data/wiki_cache/wiki_sample.parquet")
     cache_path.parent.mkdir(exist_ok=True, parents=True)
     if cache_path.exists():
         log.info("Wiki sample found in cache")

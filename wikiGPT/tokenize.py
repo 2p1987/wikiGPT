@@ -123,14 +123,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model-output-dir",
         type=str,
-        default="climateGPT/models/",
+        default="wikiGPT/tokenizers/",
         help="Directory to save the trained tokenizer",
     )
 
     parser.add_argument(
         "--data-dir",
         type=str,
-        default="climateGPT/data/shuffled_shards/",
+        default="wikiGPT/data/shuffled_shards/",
         help="Directory containing the training data",
     )
 

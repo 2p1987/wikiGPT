@@ -6,11 +6,11 @@ from pathlib import Path
 
 import torch
 
-from climateGPT.model import Transformer
-from climateGPT.tokenize import Tokenizer
+from wikiGPT.model import Transformer
+from wikiGPT.tokenize import Tokenizer
 
 # -----------------------------------------------------------------------------
-checkpoint = "out/ckpt.pt"
+checkpoint = "out/pretrained_gpt_12X95M.pt"
 start = (
     ""  # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
 )
@@ -66,14 +66,14 @@ if compile:
 
 # load the tokenizer
 vocab_size = gptconf.vocab_size
-tokenizer_model_path = "climateGPT/models/tok2000.model"
+tokenizer_model_path = "wikiGPT/tokenizers/tok32000.model"
 enc = Tokenizer(tokenizer_model_path=Path(tokenizer_model_path))
 
 # encode the beginning of the prompt
 if start.startswith("FILE:"):
     with open(start[5:], "r", encoding="utf-8") as f:
         start = f.read()
-start_ids = enc.encode("Climate change is", bos=True, eos=False)
+start_ids = enc.encode("", bos=True, eos=False)
 x = torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...]
 
 print("Run generation...")

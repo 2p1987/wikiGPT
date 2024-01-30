@@ -161,4 +161,14 @@ cython_debug/
 
 .vscode/
 .DS_Store
-climateGPT/.DS_Store
+wikiGPT/.DS_Store
+
+# Do note take into account data files
+wikiGPT/data/
+
+# W&B log files
+wandb/
+
+# Out files
+
+out/

@@ -5,7 +5,7 @@ import numpy as np
 # from datasets import load_dataset
 
 
-# PRETOKENIZED_SOURCE = "climateGPT/data/fine_tuning/vocab_2000_context_512"
+# PRETOKENIZED_SOURCE = "climateGPT/data/fine_tuning/vocab_32000_context_512"
 PRETOKENIZED_SOURCE = "climateGPT/data/tok32000"
 PRETOKENIZED_SOURCE = Path(PRETOKENIZED_SOURCE)
 
